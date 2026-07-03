@@ -112,7 +112,7 @@ function contactLine() {
 // ─── Load & route ───────────────────────────────────────────────────────────
 fetch(API).then(function (r) { return r.json().catch(function () { return {}; }).then(function (j) { return { s: r.status, j: j }; }); })
   .then(function (res) {
-    if (res.s === 404) return notice('', 'This booking link is no longer available.', 'If you believe this is a mistake, please contact us.');
+    if (res.s === 404) return notice('', 'This booking link is no longer active.', 'If you\\u2019ve already completed your booking, you\\u2019re all set \\u2014 nothing more to do. Otherwise, please contact us.');
     booking = res.j;
     var brand = (booking.snapshot && booking.snapshot.brand) || {};
     if (brand.name) {
@@ -299,13 +299,21 @@ function payCard() {
   fetch(API + '/pay-intent', { method: 'POST' })
     .then(function (r) { return r.json().catch(function () { return {}; }).then(function (j) { return { s: r.status, j: j }; }); })
     .then(function (res) {
+      // Already paid (e.g. link reopened right after paying, before the confirmation
+      // lands) — show the done state, never the form.
+      if (res.s === 409 && res.j && /already paid/i.test(res.j.error || '')) { booking.status = 'paid'; return route(); }
       if (res.s !== 200) throw new Error(res.j && res.j.error || 'Could not start the payment.');
-      elements = stripe.elements({
-        clientSecret: res.j.client_secret,
-        appearance: { theme: 'stripe', variables: { colorPrimary: '#1e78ae', fontFamily: "'Nunito Sans', Helvetica, Arial, sans-serif" } },
+      return stripe.retrievePaymentIntent(res.j.client_secret).then(function (r2) {
+        var st = r2 && r2.paymentIntent && r2.paymentIntent.status;
+        if (st === 'succeeded') { booking.status = 'paid'; return route(); }
+        if (st === 'processing') { booking.status = 'processing'; return route(); }
+        elements = stripe.elements({
+          clientSecret: res.j.client_secret,
+          appearance: { theme: 'stripe', variables: { colorPrimary: '#1e78ae', fontFamily: "'Nunito Sans', Helvetica, Arial, sans-serif" } },
+        });
+        elements.create('payment').mount('#payment-element');
+        btn.disabled = false;
       });
-      elements.create('payment').mount('#payment-element');
-      btn.disabled = false;
     })
     .catch(function (e2) { err.textContent = e2.message; });
 
