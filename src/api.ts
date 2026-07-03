@@ -59,8 +59,23 @@ async function loadLive(env: Env, token: string): Promise<{ booking: BookingRow 
  * and we always hold its secret. Best-effort — a failure never blocks publishing.
  */
 async function ensureWebhookRegistered(env: Env, origin: string): Promise<void> {
-  if (await getConfig(env.DB, 'stripe_webhook_secret')) return;
   const webhookUrl = `${origin}/api/stripe/webhook`;
+  if (await getConfig(env.DB, 'stripe_webhook_secret')) {
+    // Already registered. If the portal has since moved to a new address (e.g. a
+    // custom domain), repoint the SAME endpoint at the new URL so Stripe keeps
+    // reaching us. A URL update keeps the signing secret, so nothing else changes.
+    const storedUrl = await getConfig(env.DB, 'stripe_webhook_url');
+    const endpointId = await getConfig(env.DB, 'stripe_webhook_endpoint_id');
+    if (endpointId && storedUrl && storedUrl !== webhookUrl) {
+      try {
+        await stripeClient(env).webhookEndpoints.update(endpointId, { url: webhookUrl });
+        await setConfig(env.DB, 'stripe_webhook_url', webhookUrl);
+      } catch (err) {
+        console.error('webhook url migration failed:', err instanceof Error ? err.message : err);
+      }
+    }
+    return;
+  }
   try {
     const stripe = stripeClient(env);
     const existing = await stripe.webhookEndpoints.list({ limit: 100 });
