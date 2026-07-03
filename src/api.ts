@@ -299,10 +299,11 @@ export async function handlePayIntent(env: Env, token: string, choice: 'deposit'
   const pi = await stripe.paymentIntents.create({
     amount: amountCents, // server-authoritative — never from the client
     currency: booking.currency,
-    // Deposit/full favor instant methods (books the date on the spot); balance also offers
-    // ACH (~0.8% capped at $5 vs ~2.9% card). Wallets ride on 'card' once the payment domain
-    // is registered (docs/PORTAL.md §3a).
-    payment_method_types: booking.pay_target === 'deposit' ? ['card'] : ['card', 'us_bank_account'],
+    // Every link offers card + ACH (~0.8% capped at $5 vs ~2.9% card). Card is instant (books
+    // the date on the spot); a bank transfer clears in a few business days, so the date stays
+    // softly held while it's 'processing' and books on clearing. Wallets ride on 'card' once
+    // the payment domain is registered (docs/PORTAL.md §3a).
+    payment_method_types: ['card', 'us_bank_account'],
     description: `${kind === 'full' ? 'Full payment' : kind === 'deposit' ? 'Deposit' : 'Balance'} — ${snapshot.title ?? 'event booking'}`,
     metadata: meta,
   });

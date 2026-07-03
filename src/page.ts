@@ -315,7 +315,7 @@ function payCard() {
   var choice = 'deposit';
 
   card.appendChild(el('h2', null, booking.pay_target === 'deposit' ? (canFull ? 'Complete your booking' : 'Pay your deposit — ' + money(depAmt)) : 'Pay your balance — ' + money(depAmt)));
-  if (booking.pay_target === 'deposit') card.appendChild(el('div', 'meta', 'Your date is locked in the moment your payment goes through.'));
+  if (booking.pay_target === 'deposit') card.appendChild(el('div', 'meta', 'Pay by card or bank transfer. Card locks your date instantly; a bank transfer (ACH) takes a few business days to clear.'));
   else card.appendChild(el('div', 'meta', 'Card is instant; bank transfer (ACH) works too and takes a few business days to clear.'));
 
   var optDep = null, optFull = null;
