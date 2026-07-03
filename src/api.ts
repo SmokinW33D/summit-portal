@@ -75,9 +75,26 @@ async function ensureWebhookRegistered(env: Env, origin: string): Promise<void> 
     if (created.secret) {
       await setConfig(env.DB, 'stripe_webhook_endpoint_id', created.id);
       await setConfig(env.DB, 'stripe_webhook_secret', created.secret);
+      await setConfig(env.DB, 'stripe_webhook_url', webhookUrl);
     }
   } catch (err) {
     console.error('auto webhook registration failed:', err instanceof Error ? err.message : err);
+  }
+}
+
+// ─── Keep exactly one webhook (cleans up stray/manual duplicates) ───────────────
+async function reconcileWebhooks(env: Env): Promise<void> {
+  const url = await getConfig(env.DB, 'stripe_webhook_url');
+  const keepId = await getConfig(env.DB, 'stripe_webhook_endpoint_id');
+  if (!url || !keepId) return;
+  try {
+    const stripe = stripeClient(env);
+    const list = await stripe.webhookEndpoints.list({ limit: 100 });
+    for (const ep of list.data) {
+      if (ep.url === url && ep.id !== keepId) await stripe.webhookEndpoints.del(ep.id);
+    }
+  } catch (err) {
+    console.error('webhook reconcile failed:', err instanceof Error ? err.message : err);
   }
 }
 
@@ -118,6 +135,17 @@ export async function handlePublish(req: Request, env: Env): Promise<Response> {
     }
     if (existing.status === 'signed') {
       return json({ error: 'the client already signed the existing link — sync it down (or cancel it) before republishing' }, 409);
+    }
+    // The existing link is 'open', but its payment may have just succeeded before the
+    // webhook landed — deleting it now would drop that and let a second link double-charge.
+    if (existing.active_pi_id) {
+      const pi = await stripeClient(env).paymentIntents.retrieve(existing.active_pi_id).catch(() => null);
+      if (pi && pi.status === 'succeeded') {
+        return json({ error: `The ${p.pay_target} has already been paid — no new link is needed.` }, 409);
+      }
+      if (pi && pi.status === 'processing') {
+        return json({ error: `A ${p.pay_target} payment on this booking is still clearing — no new link is needed.` }, 409);
+      }
     }
     await deleteBooking(env.DB, existing.token);
   }
@@ -394,5 +422,6 @@ export async function runSweep(env: Env): Promise<{ expired: number; purged: num
   const expired = await expireOverdue(env.DB);
   const purged = await purgeAckedTerminal(env.DB);
   await reconcilePayments(env).catch(() => { /* best-effort */ });
+  await reconcileWebhooks(env).catch(() => { /* best-effort */ });
   return { expired, purged };
 }

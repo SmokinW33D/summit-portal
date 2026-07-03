@@ -87,7 +87,7 @@ export function validatePublishPayload(x: unknown): Valid<PublishPayload> {
   if (o.pay_target !== 'deposit' && o.pay_target !== 'balance') return { ok: false, error: 'pay_target' };
   if (typeof o.require_signature !== 'boolean') return { ok: false, error: 'require_signature' };
   if (typeof o.snapshot !== 'object' || o.snapshot === null) return { ok: false, error: 'snapshot' };
-  if (JSON.stringify(o.snapshot).length > 900_000) return { ok: false, error: 'this booking is too large to publish — try a smaller brand logo (the app usually shrinks it automatically)' };
+  if (JSON.stringify(o.snapshot).length > 700_000) return { ok: false, error: 'this booking is too large to publish — try a smaller brand logo (the app usually shrinks it automatically)' };
   if (typeof o.contract_html !== 'string' || !o.contract_html) return { ok: false, error: 'contract_html' };
   if (o.contract_html.length > 950_000) return { ok: false, error: 'the agreement is too large to publish — try a smaller brand logo' };
   if (typeof o.doc_hash !== 'string' || !/^[0-9a-f]{64}$/.test(o.doc_hash)) return { ok: false, error: 'doc_hash' };
