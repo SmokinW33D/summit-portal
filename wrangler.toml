@@ -11,10 +11,12 @@ main = "src/index.ts"
 compatibility_date = "2025-09-01"
 compatibility_flags = ["nodejs_compat"]  # Stripe SDK needs Node built-ins on Workers
 
-# The D1 binding. If you create the database in the Cloudflare dashboard and add
-# the binding there (Worker → Settings → Bindings), you can leave this as-is.
-# If you use the command line instead, run `npx wrangler d1 create summit-bookings`
-# and paste the printed database_id below.
+# The D1 binding. NOTE: `database_id` below is a public IDENTIFIER, not a secret —
+# it's the database's "address". It grants no access on its own (reaching the data
+# needs your Cloudflare login or an API token), so committing it is safe and normal.
+# The real secrets (Stripe keys, the app key) never live in this repo — they go in
+# Cloudflare's encrypted secret store. Create the DB `summit-bookings`, then paste
+# its Database ID below (or on GitHub's web editor).
 [[d1_databases]]
 binding = "DB"
 database_name = "summit-bookings"
