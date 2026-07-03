@@ -14,8 +14,9 @@ export function stripeClient(env: Env): Stripe {
 const cryptoProvider = Stripe.createSubtleCryptoProvider();
 
 /** Throws on a bad/missing signature — callers turn that into a 400. */
-export async function verifyWebhook(env: Env, rawBody: string, signature: string | null): Promise<Stripe.Event> {
+export async function verifyWebhook(env: Env, rawBody: string, signature: string | null, secret: string): Promise<Stripe.Event> {
   if (!signature) throw new Error('missing stripe-signature header');
+  if (!secret) throw new Error('webhook secret not configured yet');
   const stripe = stripeClient(env);
-  return await stripe.webhooks.constructEventAsync(rawBody, signature, env.STRIPE_WEBHOOK_SECRET, undefined, cryptoProvider);
+  return await stripe.webhooks.constructEventAsync(rawBody, signature, secret, undefined, cryptoProvider);
 }

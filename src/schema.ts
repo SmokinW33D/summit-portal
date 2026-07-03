@@ -52,6 +52,8 @@ export const SCHEMA_STATEMENTS: string[] = [
   )`,
   `CREATE UNIQUE INDEX IF NOT EXISTS idx_payment_pi ON payment_event(stripe_pi_id)`,
   `CREATE INDEX IF NOT EXISTS idx_payment_booking ON payment_event(booking_token)`,
+  // Small key/value store — currently holds the auto-registered Stripe webhook secret.
+  `CREATE TABLE IF NOT EXISTS app_config (key TEXT PRIMARY KEY, value TEXT)`,
 ];
 
 // Applied at most once per Worker isolate.

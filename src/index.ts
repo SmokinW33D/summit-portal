@@ -25,7 +25,7 @@ import { ensureSchema } from './schema';
 export interface Env {
   DB: D1Database;
   STRIPE_SECRET_KEY: string;
-  STRIPE_WEBHOOK_SECRET: string;
+  STRIPE_WEBHOOK_SECRET?: string; // optional — production auto-registers + stores the secret in D1
   DESKTOP_API_KEY: string;
 }
 

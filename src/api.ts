@@ -12,9 +12,9 @@ import {
   validatePublishPayload, validateSignPayload,
 } from './logic';
 import {
-  ackAndPurge, deleteBooking, expireOverdue, findActiveForEntity, getBooking, getSignature,
-  insertBooking, insertSignature, listDirtyUpdates, purgeAckedTerminal, setBookingStatus,
-  upsertPaymentEvent, type BookingRow,
+  ackAndPurge, deleteBooking, expireOverdue, findActiveForEntity, getBooking, getConfig,
+  getSignature, insertBooking, insertSignature, listDirtyUpdates, purgeAckedTerminal,
+  setBookingStatus, setConfig, upsertPaymentEvent, type BookingRow,
 } from './db';
 import { stripeClient, verifyWebhook } from './stripeClient';
 
@@ -50,11 +50,43 @@ async function loadLive(env: Env, token: string): Promise<{ booking: BookingRow 
   return { booking, expiredNow: false };
 }
 
+// ─── Auto-register the Stripe webhook (no dashboard step) ──────────────────────
+/**
+ * The first time the desktop publishes, register this portal's own Stripe webhook
+ * and store the signing secret in D1 — so no one wires a webhook up by hand. Runs
+ * once (cached in D1); removes any prior endpoint at our URL so there's exactly one
+ * and we always hold its secret. Best-effort — a failure never blocks publishing.
+ */
+async function ensureWebhookRegistered(env: Env, origin: string): Promise<void> {
+  if (await getConfig(env.DB, 'stripe_webhook_secret')) return;
+  const webhookUrl = `${origin}/api/stripe/webhook`;
+  try {
+    const stripe = stripeClient(env);
+    const existing = await stripe.webhookEndpoints.list({ limit: 100 });
+    for (const ep of existing.data) {
+      if (ep.url === webhookUrl) await stripe.webhookEndpoints.del(ep.id);
+    }
+    const created = await stripe.webhookEndpoints.create({
+      url: webhookUrl,
+      enabled_events: ['payment_intent.succeeded', 'payment_intent.processing', 'payment_intent.payment_failed', 'charge.refunded'],
+      description: 'Summit booking portal (auto-registered)',
+    });
+    if (created.secret) {
+      await setConfig(env.DB, 'stripe_webhook_endpoint_id', created.id);
+      await setConfig(env.DB, 'stripe_webhook_secret', created.secret);
+    }
+  } catch (err) {
+    console.error('auto webhook registration failed:', err instanceof Error ? err.message : err);
+  }
+}
+
 // ─── Desktop: publish ───────────────────────────────────────────────────────────
 
 export async function handlePublish(req: Request, env: Env): Promise<Response> {
   const denied = await requireDesktopAuth(req, env);
   if (denied) return denied;
+  // First publish wires up our Stripe webhook automatically (no dashboard step).
+  await ensureWebhookRegistered(env, new URL(req.url).origin);
   const parsed = validatePublishPayload(await readJson(req));
   if (!parsed.ok) return json({ error: `invalid payload: ${parsed.error}` }, 400);
   const p = parsed.value;
@@ -208,9 +240,10 @@ export async function handlePayIntent(env: Env, token: string): Promise<Response
 // ─── Stripe webhook ─────────────────────────────────────────────────────────────
 
 export async function handleStripeWebhook(req: Request, env: Env): Promise<Response> {
+  const secret = (await getConfig(env.DB, 'stripe_webhook_secret')) ?? env.STRIPE_WEBHOOK_SECRET ?? '';
   let event: Stripe.Event;
   try {
-    event = await verifyWebhook(env, await req.text(), req.headers.get('stripe-signature'));
+    event = await verifyWebhook(env, await req.text(), req.headers.get('stripe-signature'), secret);
   } catch {
     return json({ error: 'invalid signature' }, 400);
   }
