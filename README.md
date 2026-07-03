@@ -9,6 +9,24 @@ app (`SmokinW33D/summit-ops`). The two talk only over HTTPS at runtime; neither 
 other. Keeping the portal in its own repo means the CRM's code is never connected to
 Cloudflare.
 
+## Deploy your own (one click)
+
+[![Deploy to Cloudflare](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/SmokinW33D/summit-portal)
+
+Clicking the button makes Cloudflare **copy this repo into your own account, create a fresh
+D1 database for you, and prompt you for the three secrets** — you edit nothing. Each person
+who deploys gets their **own** isolated instance (own database, own keys, own address);
+nobody shares anyone else's. After it deploys:
+
+1. Add your booking domain (Worker → Settings → Domains & Routes → `book.yourdomain.com`).
+2. In Stripe, add a webhook to `https://<your-domain>/api/stripe/webhook` and paste its
+   signing secret into the Worker's `STRIPE_WEBHOOK_SECRET`.
+3. In the Summit app → Settings → Client portal: enter the URL + Stripe publishable key,
+   **Generate app key** (that's your `DESKTOP_API_KEY`), Save, Test connection.
+
+(The button needs read access to this repo. It's yours now; make it **public** if you want
+others to be able to click it — safe, since the repo holds no data and no secrets.)
+
 ## What is and isn't in this repo
 
 - **In it:** the booking-page code only — HTML/JS page, the API, the D1 schema.

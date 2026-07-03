@@ -11,16 +11,14 @@ main = "src/index.ts"
 compatibility_date = "2025-09-01"
 compatibility_flags = ["nodejs_compat"]  # Stripe SDK needs Node built-ins on Workers
 
-# The D1 binding. NOTE: `database_id` below is a public IDENTIFIER, not a secret —
-# it's the database's "address". It grants no access on its own (reaching the data
-# needs your Cloudflare login or an API token), so committing it is safe and normal.
-# The real secrets (Stripe keys, the app key) never live in this repo — they go in
-# Cloudflare's encrypted secret store. Create the DB `summit-bookings`, then paste
-# its Database ID below (or on GitHub's web editor).
+# The D1 binding. No `database_id` here on purpose: this repo is a TEMPLATE. When you
+# deploy with the "Deploy to Cloudflare" button (see README), Cloudflare creates a
+# fresh D1 database in YOUR account, binds it as DB, and writes its id into YOUR copy
+# of this repo automatically — so nobody edits anything, and every deployment gets its
+# own isolated database. (Deploying by hand via the CLI instead? Add database_id here.)
 [[d1_databases]]
 binding = "DB"
 database_name = "summit-bookings"
-database_id = "SET_IN_DASHBOARD_OR_PASTE_HERE"
 
 [triggers]
 # Hourly sweep: expire past-due links (releases the desktop's soft-hold on next
