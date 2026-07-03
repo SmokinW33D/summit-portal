@@ -9,6 +9,7 @@
 name = "summit-booking-portal"
 main = "src/index.ts"
 compatibility_date = "2025-09-01"
+compatibility_flags = ["nodejs_compat"]  # Stripe SDK needs Node built-ins on Workers
 
 # The D1 binding. If you create the database in the Cloudflare dashboard and add
 # the binding there (Worker → Settings → Bindings), you can leave this as-is.
