@@ -1,0 +1,8 @@
+# Local development secrets — copy to .dev.vars (gitignored) and fill in.
+# Values come from the Stripe dashboard in TEST mode (docs/PORTAL.md §3a).
+STRIPE_SECRET_KEY = "sk_test_REPLACE_ME"
+# From `stripe listen --forward-to localhost:8787/api/stripe/webhook` (Stripe CLI)
+STRIPE_WEBHOOK_SECRET = "whsec_REPLACE_ME"
+# Any long random string; must match what Summit's Settings → Client portal holds.
+# Generate: openssl rand -base64 32
+DESKTOP_API_KEY = "REPLACE_ME"

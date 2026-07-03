@@ -1,0 +1,28 @@
+# Summit booking portal — Cloudflare Worker + D1.
+#
+# You should NOT need to hand-edit this file. The easy path (docs/PORTAL.md §3)
+# connects this repo to Cloudflare in the dashboard; you create the D1 database
+# and paste the three secrets there — all clicks, no command line. The Worker
+# creates its own tables on first run, so there's no migration step, and the
+# Stripe publishable key + portal URL live in the Summit app, not here.
+
+name = "summit-booking-portal"
+main = "src/index.ts"
+compatibility_date = "2025-09-01"
+
+# The D1 binding. If you create the database in the Cloudflare dashboard and add
+# the binding there (Worker → Settings → Bindings), you can leave this as-is.
+# If you use the command line instead, run `npx wrangler d1 create summit-bookings`
+# and paste the printed database_id below.
+[[d1_databases]]
+binding = "DB"
+database_name = "summit-bookings"
+database_id = "SET_IN_DASHBOARD_OR_PASTE_HERE"
+
+[triggers]
+# Hourly sweep: expire past-due links (releases the desktop's soft-hold on next
+# poll) and purge terminal bookings the desktop has already acked.
+crons = ["17 * * * *"]
+
+# Secrets (set in the dashboard, or via `npx wrangler secret put …` — see
+# docs/PORTAL.md §3): STRIPE_SECRET_KEY, STRIPE_WEBHOOK_SECRET, DESKTOP_API_KEY.

@@ -1,0 +1,31 @@
+{
+  "name": "summit-booking-portal",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Client-facing booking portal (view / e-sign / pay) — Cloudflare Worker + D1. See docs/PORTAL.md.",
+  "type": "module",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "check": "tsc --noEmit",
+    "test": "tsx --test test/*.test.ts",
+    "migrate:local": "wrangler d1 migrations apply summit-bookings --local",
+    "migrate:remote": "wrangler d1 migrations apply summit-bookings --remote"
+  },
+  "dependencies": {
+    "stripe": "^17.5.0"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^4.20250705.0",
+    "tsx": "^4.19.1",
+    "typescript": "^5.6.2",
+    "wrangler": "^3.114.0"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "workerd",
+      "esbuild",
+      "sharp"
+    ]
+  }
+}
