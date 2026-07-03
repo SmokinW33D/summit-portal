@@ -12,9 +12,10 @@ import {
   validatePublishPayload, validateSignPayload,
 } from './logic';
 import {
-  ackAndPurge, deleteBooking, expireOverdue, findActiveForEntity, findSettledForEntity, getBooking, getConfig,
-  getSignature, insertBooking, insertSignature, listDirtyUpdates, purgeAckedTerminal,
-  setBookingStatus, setConfig, upsertPaymentEvent, type BookingRow,
+  ackAndPurge, ackRefundNotices, deleteBooking, expireOverdue, findActiveForEntity, findSettledForEntity,
+  getBooking, getConfig, getSignature, insertBooking, insertRefundNotice, insertSignature, listDirtyRefundNotices,
+  listDirtyUpdates, listReconcilable, purgeAckedTerminal, setBookingStatus, setConfig, upsertPaymentEvent,
+  type BookingRow,
 } from './db';
 import { stripeClient, verifyWebhook } from './stripeClient';
 
@@ -240,11 +241,40 @@ export async function handlePayIntent(env: Env, token: string): Promise<Response
     // the payment domain is registered (docs/PORTAL.md §3a).
     payment_method_types: booking.pay_target === 'deposit' ? ['card'] : ['card', 'us_bank_account'],
     description: `${booking.pay_target === 'deposit' ? 'Deposit' : 'Balance'} — ${snapshot.title ?? 'event booking'}`,
-    metadata: { booking_token: token, kind: booking.pay_target },
+    metadata: { booking_token: token, kind: booking.pay_target, related_type: booking.related_type, related_id: booking.related_id },
   });
   await upsertPaymentEvent(env.DB, { booking_token: token, stripe_pi_id: pi.id, kind: booking.pay_target, amount: booking.amount_due, status: 'created' });
   await setBookingStatus(env.DB, token, booking.status, { dirty: false, activePiId: pi.id });
   return json({ client_secret: pi.client_secret, amount_cents: pi.amount, publishable_key: publishableKeyOf(booking) });
+}
+
+// ─── Payment reconcile (safety net) ────────────────────────────────────────────
+/**
+ * Catch any payment whose webhook was missed (registration hiccup, transient
+ * failure): check the live status of each in-flight PaymentIntent and apply it,
+ * exactly as the webhook would. Runs on every desktop poll and on the cron, so a
+ * collected payment can never sit unrecorded for long.
+ */
+async function reconcilePayments(env: Env): Promise<void> {
+  let rows: { token: string; active_pi_id: string; status: string }[];
+  try { rows = await listReconcilable(env.DB); } catch { return; }
+  if (rows.length === 0) return;
+  const stripe = stripeClient(env);
+  for (const r of rows) {
+    try {
+      const pi = await stripe.paymentIntents.retrieve(r.active_pi_id);
+      const kind = pi.metadata?.kind === 'balance' ? 'balance' : 'deposit';
+      if (pi.status === 'succeeded' && r.status !== 'paid') {
+        await upsertPaymentEvent(env.DB, { booking_token: r.token, stripe_pi_id: pi.id, kind, amount: pi.amount / 100, status: 'succeeded' });
+        await setBookingStatus(env.DB, r.token, 'paid');
+      } else if (pi.status === 'processing' && r.status !== 'processing') {
+        await upsertPaymentEvent(env.DB, { booking_token: r.token, stripe_pi_id: pi.id, kind, amount: pi.amount / 100, status: 'processing' });
+        await setBookingStatus(env.DB, r.token, 'processing');
+      }
+    } catch (err) {
+      console.error('reconcile PaymentIntent failed:', err instanceof Error ? err.message : err);
+    }
+  }
 }
 
 // ─── Stripe webhook ─────────────────────────────────────────────────────────────
@@ -297,6 +327,20 @@ export async function handleStripeWebhook(req: Request, env: Env): Promise<Respo
           const booking = await getBooking(env.DB, row.booking_token);
           if (booking) await setBookingStatus(env.DB, row.booking_token, booking.status); // bump dirty + updated_at
         }
+        // Durable notice keyed by event (from the PI metadata) so a refund still reaches
+        // the desktop even after the booking has been synced + purged from D1.
+        try {
+          const pi = await stripeClient(env).paymentIntents.retrieve(piId);
+          const rt = pi.metadata?.related_type;
+          const rid = pi.metadata?.related_id;
+          if ((rt === 'lead' || rt === 'event') && rid) {
+            await insertRefundNotice(env.DB, {
+              stripe_pi_id: piId, related_type: rt, related_id: rid,
+              pay_target: pi.metadata?.kind === 'balance' ? 'balance' : 'deposit',
+              amount: (charge.amount_refunded ?? 0) / 100, refunded_at: nowIso(),
+            });
+          }
+        } catch (err) { console.error('refund notice failed:', err instanceof Error ? err.message : err); }
       }
       break;
     }
@@ -311,7 +355,8 @@ export async function handleStripeWebhook(req: Request, env: Env): Promise<Respo
 export async function handleUpdates(req: Request, env: Env): Promise<Response> {
   const denied = await requireDesktopAuth(req, env);
   if (denied) return denied;
-  return json({ updates: await listDirtyUpdates(env.DB) });
+  await reconcilePayments(env); // safety net: catch any payment whose webhook was missed
+  return json({ updates: await listDirtyUpdates(env.DB), refunds: await listDirtyRefundNotices(env.DB) });
 }
 
 export async function handleAck(req: Request, env: Env): Promise<Response> {
@@ -323,6 +368,9 @@ export async function handleAck(req: Request, env: Env): Promise<Response> {
     .filter((a) => typeof a?.token === 'string' && typeof a?.updated_at === 'string')
     .map((a) => ({ token: a.token as string, updated_at: a.updated_at as string }));
   const purged = await ackAndPurge(env.DB, acks);
+  if (Array.isArray((body as { refund_acks?: unknown }).refund_acks)) {
+    await ackRefundNotices(env.DB, ((body as { refund_acks: unknown[] }).refund_acks).filter((x): x is string => typeof x === 'string'));
+  }
   return json({ ok: true, purged });
 }
 
@@ -345,5 +393,6 @@ export async function handleCancel(req: Request, env: Env, token: string): Promi
 export async function runSweep(env: Env): Promise<{ expired: number; purged: number }> {
   const expired = await expireOverdue(env.DB);
   const purged = await purgeAckedTerminal(env.DB);
+  await reconcilePayments(env).catch(() => { /* best-effort */ });
   return { expired, purged };
 }

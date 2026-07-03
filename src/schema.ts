@@ -54,6 +54,9 @@ export const SCHEMA_STATEMENTS: string[] = [
   `CREATE INDEX IF NOT EXISTS idx_payment_booking ON payment_event(booking_token)`,
   // Small key/value store — currently holds the auto-registered Stripe webhook secret.
   `CREATE TABLE IF NOT EXISTS app_config (key TEXT PRIMARY KEY, value TEXT)`,
+  // Refund notices survive booking purge, so the desktop still learns of a late refund.
+  `CREATE TABLE IF NOT EXISTS refund_notice (id TEXT PRIMARY KEY, stripe_pi_id TEXT, related_type TEXT NOT NULL, related_id TEXT NOT NULL, pay_target TEXT NOT NULL, amount REAL NOT NULL, refunded_at TEXT NOT NULL, desktop_dirty INTEGER NOT NULL DEFAULT 1)`,
+  `CREATE UNIQUE INDEX IF NOT EXISTS idx_refund_pi ON refund_notice(stripe_pi_id)`,
 ];
 
 // Applied at most once per Worker isolate.

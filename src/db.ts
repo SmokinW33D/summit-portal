@@ -232,3 +232,44 @@ export async function setConfig(db: D1Database, key: string, value: string): Pro
     .bind(key, value)
     .run();
 }
+
+// ─── Payment reconcile (safety net for a missed webhook) ─────────────────────────
+export async function listReconcilable(
+  db: D1Database,
+): Promise<{ token: string; active_pi_id: string; status: BookingStatus }[]> {
+  const r = await db
+    .prepare("SELECT token, active_pi_id, status FROM booking WHERE active_pi_id IS NOT NULL AND status IN ('open','signed','processing')")
+    .all<{ token: string; active_pi_id: string; status: BookingStatus }>();
+  return r.results;
+}
+
+// ─── Refund notices (survive booking purge) ──────────────────────────────────────
+export interface RefundNotice {
+  id: string;
+  related_type: 'lead' | 'event';
+  related_id: string;
+  pay_target: PayTarget;
+  amount: number;
+  refunded_at: string;
+}
+
+export async function insertRefundNotice(
+  db: D1Database,
+  r: { stripe_pi_id: string; related_type: 'lead' | 'event'; related_id: string; pay_target: PayTarget; amount: number; refunded_at: string },
+): Promise<void> {
+  await db
+    .prepare('INSERT OR IGNORE INTO refund_notice (id, stripe_pi_id, related_type, related_id, pay_target, amount, refunded_at, desktop_dirty) VALUES (?, ?, ?, ?, ?, ?, ?, 1)')
+    .bind(crypto.randomUUID(), r.stripe_pi_id, r.related_type, r.related_id, r.pay_target, r.amount, r.refunded_at)
+    .run();
+}
+
+export async function listDirtyRefundNotices(db: D1Database): Promise<RefundNotice[]> {
+  const r = await db
+    .prepare('SELECT id, related_type, related_id, pay_target, amount, refunded_at FROM refund_notice WHERE desktop_dirty = 1 LIMIT 50')
+    .all<RefundNotice>();
+  return r.results;
+}
+
+export async function ackRefundNotices(db: D1Database, ids: string[]): Promise<void> {
+  for (const id of ids) await db.prepare('DELETE FROM refund_notice WHERE id = ?').bind(id).run();
+}
