@@ -30,6 +30,7 @@ export interface SignatureRow {
   sig_data: string;
   consent_text: string;
   signed_at: string;
+  signed_date: string | null; // client-confirmed date, YYYY-MM-DD
   ip: string | null;
   user_agent: string | null;
   doc_hash: string;
@@ -132,9 +133,9 @@ export async function setBookingStatus(
 export async function insertSignature(db: D1Database, sig: SignatureRow): Promise<void> {
   await db
     .prepare(`INSERT INTO signature (booking_token, signer_name, sig_kind, sig_data, consent_text,
-        signed_at, ip, user_agent, doc_hash) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+        signed_at, signed_date, ip, user_agent, doc_hash) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
     .bind(sig.booking_token, sig.signer_name, sig.sig_kind, sig.sig_data, sig.consent_text,
-      sig.signed_at, sig.ip, sig.user_agent, sig.doc_hash)
+      sig.signed_at, sig.signed_date, sig.ip, sig.user_agent, sig.doc_hash)
     .run();
 }
 
@@ -182,7 +183,7 @@ export async function listDirtyUpdates(db: D1Database): Promise<BookingUpdate[]>
       updated_at: b.updated_at,
       expires_at: b.expires_at,
       signature: sig
-        ? { signer_name: sig.signer_name, sig_kind: sig.sig_kind, sig_data: sig.sig_data, consent_text: sig.consent_text, signed_at: sig.signed_at, ip: sig.ip, user_agent: sig.user_agent, doc_hash: sig.doc_hash }
+        ? { signer_name: sig.signer_name, sig_kind: sig.sig_kind, sig_data: sig.sig_data, consent_text: sig.consent_text, signed_at: sig.signed_at, signed_date: sig.signed_date, ip: sig.ip, user_agent: sig.user_agent, doc_hash: sig.doc_hash }
         : null,
       contract_html: sig ? b.contract_html : null,
       payments: pays.map((p) => ({ stripe_pi_id: p.stripe_pi_id, kind: p.kind, amount: p.amount, status: p.status, updated_at: p.updated_at })),

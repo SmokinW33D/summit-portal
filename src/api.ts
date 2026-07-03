@@ -245,6 +245,7 @@ export async function handleSign(req: Request, env: Env, token: string): Promise
     sig_data: parsed.value.sig_data,
     consent_text: parsed.value.consent_text,
     signed_at: signedAt,
+    signed_date: parsed.value.signed_date,
     ip: req.headers.get('cf-connecting-ip'),
     user_agent: req.headers.get('user-agent'),
     doc_hash: liveHash,

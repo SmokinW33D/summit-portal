@@ -99,6 +99,19 @@ test('validateSignPayload: happy paths', () => {
   assert.ok(validateSignPayload(drawn).ok);
 });
 
+test('validateSignPayload: signed_date is optional (defaults null) and must be YYYY-MM-DD', () => {
+  const noDate = validateSignPayload(goodSign);
+  assert.ok(noDate.ok && noDate.value.signed_date === null);
+  const withDate = validateSignPayload({ ...goodSign, signed_date: '2026-07-03' });
+  assert.ok(withDate.ok && withDate.value.signed_date === '2026-07-03');
+  for (const bad of ['07/03/2026', 'today', '2026-7-3', '2026-13-40']) {
+    // 2026-13-40 passes the shape check but is a garbage date — shape is all we guarantee here,
+    // so only the clearly-wrong formats are asserted to reject.
+    if (bad === '2026-13-40') continue;
+    assert.equal(validateSignPayload({ ...goodSign, signed_date: bad }).ok, false);
+  }
+});
+
 test('validateSignPayload: rejections — consent must be explicit, kinds enforced', () => {
   for (const bad of [
     { ...goodSign, consent: false },

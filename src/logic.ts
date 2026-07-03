@@ -120,6 +120,7 @@ export interface SignPayload {
   sig_data: string;
   consent: true;
   consent_text: string;
+  signed_date: string | null; // client-confirmed date, YYYY-MM-DD (defaults to today client-side)
 }
 
 export function validateSignPayload(x: unknown): Valid<SignPayload> {
@@ -134,6 +135,11 @@ export function validateSignPayload(x: unknown): Valid<SignPayload> {
   }
   if (o.consent !== true) return { ok: false, error: 'consent must be explicitly true' };
   if (typeof o.consent_text !== 'string' || !o.consent_text.trim() || o.consent_text.length > 500) return { ok: false, error: 'consent_text' };
+  let signed_date: string | null = null;
+  if (o.signed_date != null) {
+    if (typeof o.signed_date !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(o.signed_date)) return { ok: false, error: 'signed_date must be YYYY-MM-DD' };
+    signed_date = o.signed_date;
+  }
   return {
     ok: true,
     value: {
@@ -142,6 +148,7 @@ export function validateSignPayload(x: unknown): Valid<SignPayload> {
       sig_data: o.sig_data,
       consent: true,
       consent_text: o.consent_text,
+      signed_date,
     },
   };
 }

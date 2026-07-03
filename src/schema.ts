@@ -4,8 +4,9 @@
  * apply` step is ever needed — one less command for setup. Every statement is
  * idempotent (IF NOT EXISTS), so running it on every cold start is harmless.
  *
- * migrations/0001_init.sql mirrors this verbatim for anyone who prefers the CLI
- * migration path; keep the two in sync if you change either.
+ * migrations/ mirrors this for anyone who prefers the CLI migration path: 0001_init.sql
+ * is the original shape and each later change is an additive 0002+, 0003+… file (matching
+ * ADDITIVE_COLUMNS below). Keep the two paths in sync when you change the schema.
  */
 export const SCHEMA_STATEMENTS: string[] = [
   `CREATE TABLE IF NOT EXISTS booking (
@@ -36,6 +37,7 @@ export const SCHEMA_STATEMENTS: string[] = [
     sig_data TEXT NOT NULL,
     consent_text TEXT NOT NULL,
     signed_at TEXT NOT NULL,
+    signed_date TEXT,
     ip TEXT,
     user_agent TEXT,
     doc_hash TEXT NOT NULL
@@ -59,11 +61,21 @@ export const SCHEMA_STATEMENTS: string[] = [
   `CREATE UNIQUE INDEX IF NOT EXISTS idx_refund_pi ON refund_notice(stripe_pi_id)`,
 ];
 
+// Additive columns for tables that already exist on a live D1. ALTER has no
+// IF NOT EXISTS, so each runs on its own and a "duplicate column" error (the
+// column is already there) is swallowed to keep ensureSchema idempotent.
+const ADDITIVE_COLUMNS: string[] = [
+  `ALTER TABLE signature ADD COLUMN signed_date TEXT`, // client-confirmed sign date
+];
+
 // Applied at most once per Worker isolate.
 let ready = false;
 
 export async function ensureSchema(db: D1Database): Promise<void> {
   if (ready) return;
   await db.batch(SCHEMA_STATEMENTS.map((s) => db.prepare(s)));
+  for (const stmt of ADDITIVE_COLUMNS) {
+    try { await db.prepare(stmt).run(); } catch { /* column already exists */ }
+  }
   ready = true;
 }

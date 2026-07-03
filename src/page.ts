@@ -228,6 +228,14 @@ function signCard() {
   sigbox.appendChild(typed); sigbox.appendChild(pad); sigbox.appendChild(clear);
   card.appendChild(sigbox);
 
+  // Date — pre-filled with today, but the client confirms (and may adjust) it.
+  card.appendChild(el('label', null, 'Date'));
+  var dateIn = document.createElement('input');
+  dateIn.type = 'date';
+  var now = new Date();
+  dateIn.value = now.getFullYear() + '-' + String(now.getMonth() + 1).padStart(2, '0') + '-' + String(now.getDate()).padStart(2, '0');
+  card.appendChild(dateIn);
+
   var strokes = 0, drawing = false, ctx = null;
   function setupPad() {
     var dpr = window.devicePixelRatio || 1, r = pad.getBoundingClientRect();
@@ -261,13 +269,14 @@ function signCard() {
     err.textContent = '';
     if (!name.value.trim()) { err.textContent = 'Please enter your full legal name.'; return; }
     if (mode === 'drawn' && strokes === 0) { err.textContent = 'Please draw your signature (or switch to \\u201cType it\\u201d).'; return; }
+    if (!dateIn.value) { err.textContent = 'Please confirm the date.'; return; }
     if (!cb.checked) { err.textContent = 'Please tick the agreement box to sign.'; return; }
     btn.disabled = true; btn.textContent = 'Signing\\u2026';
     var sig = mode === 'typed' ? name.value.trim() : pad.toDataURL('image/png');
     fetch(API + '/sign', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ signer_name: name.value.trim(), sig_kind: mode, sig_data: sig, consent: true, consent_text: CONSENT_TEXT }),
+      body: JSON.stringify({ signer_name: name.value.trim(), sig_kind: mode, sig_data: sig, consent: true, consent_text: CONSENT_TEXT, signed_date: dateIn.value }),
     }).then(function (r) { return r.json().catch(function () { return {}; }).then(function (j) { return { s: r.status, j: j }; }); })
       .then(function (res) {
         if (res.s !== 200) { throw new Error(res.j && res.j.error || 'Could not record the signature.'); }
