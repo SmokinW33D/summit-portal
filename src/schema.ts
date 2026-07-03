@@ -19,6 +19,7 @@ export const SCHEMA_STATEMENTS: string[] = [
     contract_html TEXT NOT NULL,
     doc_hash TEXT NOT NULL,
     amount_due REAL NOT NULL,
+    full_amount REAL,
     currency TEXT NOT NULL DEFAULT 'usd',
     status TEXT NOT NULL DEFAULT 'open',
     active_pi_id TEXT,
@@ -66,6 +67,7 @@ export const SCHEMA_STATEMENTS: string[] = [
 // column is already there) is swallowed to keep ensureSchema idempotent.
 const ADDITIVE_COLUMNS: string[] = [
   `ALTER TABLE signature ADD COLUMN signed_date TEXT`, // client-confirmed sign date
+  `ALTER TABLE booking ADD COLUMN full_amount REAL`,   // whole total for "pay in full" on a deposit link
 ];
 
 // Applied at most once per Worker isolate.

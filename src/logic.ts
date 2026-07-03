@@ -6,6 +6,8 @@
 
 export type BookingStatus = 'open' | 'signed' | 'processing' | 'paid' | 'expired' | 'cancelled';
 export type PayTarget = 'deposit' | 'balance';
+/** What a payment covers. 'full' = a deposit link paid in full (deposit + balance at once). */
+export type PayKind = PayTarget | 'full';
 
 /** Terminal = the desktop acks it once, then the row is purged from the host. */
 export const TERMINAL_STATUSES: BookingStatus[] = ['paid', 'expired', 'cancelled'];
@@ -73,6 +75,7 @@ export interface PublishPayload {
   contract_html: string;
   doc_hash: string;
   amount_due: number;
+  full_amount: number | null; // whole contract total on a deposit link (enables "pay in full")
   currency: string;
   expires_days: number;
 }
@@ -94,6 +97,15 @@ export function validatePublishPayload(x: unknown): Valid<PublishPayload> {
   if (typeof o.amount_due !== 'number' || !Number.isFinite(o.amount_due) || o.amount_due <= 0 || o.amount_due > 10_000_000) {
     return { ok: false, error: 'amount_due' };
   }
+  // Optional whole-contract total for a deposit link. Must exceed the deposit (else there's
+  // nothing extra to pay in full). Only meaningful on deposit links — ignored otherwise.
+  let full_amount: number | null = null;
+  if (o.full_amount != null) {
+    if (typeof o.full_amount !== 'number' || !Number.isFinite(o.full_amount) || o.full_amount <= o.amount_due || o.full_amount > 10_000_000) {
+      return { ok: false, error: 'full_amount' };
+    }
+    if (o.pay_target === 'deposit') full_amount = o.full_amount;
+  }
   if (o.currency !== 'usd') return { ok: false, error: 'currency' };
   const days = o.expires_days ?? 14;
   if (typeof days !== 'number' || !Number.isInteger(days) || days < 1 || days > 90) return { ok: false, error: 'expires_days' };
@@ -108,6 +120,7 @@ export function validatePublishPayload(x: unknown): Valid<PublishPayload> {
       contract_html: o.contract_html,
       doc_hash: o.doc_hash,
       amount_due: o.amount_due,
+      full_amount,
       currency: 'usd',
       expires_days: days,
     },

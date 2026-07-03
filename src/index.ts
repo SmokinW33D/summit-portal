@@ -95,7 +95,10 @@ async function route(req: Request, env: Env): Promise<Response> {
       const [, token, action] = m;
       if (!action && req.method === 'GET') return handleGetBooking(env, token);
       if (action === 'sign' && req.method === 'POST') return handleSign(req, env, token);
-      if (action === 'pay-intent' && req.method === 'POST') return handlePayIntent(env, token);
+      if (action === 'pay-intent' && req.method === 'POST') {
+        const choice = url.searchParams.get('choice') === 'full' ? 'full' : 'deposit';
+        return handlePayIntent(env, token, choice);
+      }
       if (action === 'cancel' && req.method === 'POST') return handleCancel(req, env, token);
       return json({ error: 'not found' }, 404);
     }

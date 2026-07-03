@@ -9,7 +9,7 @@ import type Stripe from 'stripe';
 import type { Env } from './index';
 import {
   addDaysIso, dollarsToCents, isExpiredAt, mintToken, nowIso, safeEqual, sha256Hex,
-  validatePublishPayload, validateSignPayload,
+  validatePublishPayload, validateSignPayload, type PayKind,
 } from './logic';
 import {
   ackAndPurge, ackRefundNotices, deleteBooking, expireOverdue, findActiveForEntity, findSettledForEntity,
@@ -176,6 +176,7 @@ export async function handlePublish(req: Request, env: Env): Promise<Response> {
     contract_html: p.contract_html,
     doc_hash: p.doc_hash,
     amount_due: p.amount_due,
+    full_amount: p.full_amount,
     currency: p.currency,
     status: 'open',
     active_pi_id: null,
@@ -215,6 +216,7 @@ export async function handleGetBooking(env: Env, token: string): Promise<Respons
     snapshot: JSON.parse(booking.snapshot_json) as Record<string, unknown>,
     contract_html: booking.contract_html,
     amount_due: booking.amount_due,
+    full_amount: booking.full_amount,
     currency: booking.currency,
     expires_at: booking.expires_at,
     stripe_publishable_key: publishableKeyOf(booking),
@@ -256,7 +258,7 @@ export async function handleSign(req: Request, env: Env, token: string): Promise
 
 // ─── Client: create/reuse the PaymentIntent ────────────────────────────────────
 
-export async function handlePayIntent(env: Env, token: string): Promise<Response> {
+export async function handlePayIntent(env: Env, token: string, choice: 'deposit' | 'full' = 'deposit'): Promise<Response> {
   const { booking } = await loadLive(env, token);
   if (!booking) return json({ error: 'not found' }, 404);
   if (booking.status === 'expired' || booking.status === 'cancelled') return json({ error: 'this link has expired — please contact us for a new one' }, 410);
@@ -265,29 +267,46 @@ export async function handlePayIntent(env: Env, token: string): Promise<Response
     return json({ error: 'please sign the agreement first' }, 403);
   }
 
+  // Amount + kind are SERVER-authoritative — the client only sends a choice string. "Pay in
+  // full" is offered only on a deposit link that carries a larger whole-contract total.
+  const payFull = choice === 'full' && booking.pay_target === 'deposit' && booking.full_amount != null && booking.full_amount > booking.amount_due;
+  const amount = payFull ? booking.full_amount! : booking.amount_due;
+  const kind: PayKind = payFull ? 'full' : booking.pay_target;
+  const amountCents = dollarsToCents(amount);
+  const snapshot = JSON.parse(booking.snapshot_json) as { title?: string };
+  const meta = { booking_token: token, kind, related_type: booking.related_type, related_id: booking.related_id };
   const stripe = stripeClient(env);
 
-  // Reuse the in-flight PaymentIntent so refresh/double-click never double-charges.
+  // Reuse the in-flight PaymentIntent so refresh/double-click never double-charges. If the
+  // client switched deposit↔full, update the SAME intent's amount + kind (same client_secret).
   if (booking.active_pi_id) {
     const pi = await stripe.paymentIntents.retrieve(booking.active_pi_id);
     if (pi.status === 'succeeded') return json({ error: 'already paid' }, 409);
     if (pi.status !== 'canceled') {
-      return json({ client_secret: pi.client_secret, amount_cents: pi.amount, publishable_key: publishableKeyOf(booking) });
+      if (pi.amount === amountCents && pi.metadata?.kind === kind) {
+        return json({ client_secret: pi.client_secret, amount_cents: pi.amount, publishable_key: publishableKeyOf(booking) });
+      }
+      try {
+        const upd = await stripe.paymentIntents.update(pi.id, { amount: amountCents, metadata: meta });
+        await upsertPaymentEvent(env.DB, { booking_token: token, stripe_pi_id: upd.id, kind, amount, status: 'created' });
+        return json({ client_secret: upd.client_secret, amount_cents: upd.amount, publishable_key: publishableKeyOf(booking) });
+      } catch {
+        /* couldn't update (rare) — fall through and mint a fresh intent for the chosen amount */
+      }
     }
   }
 
-  const snapshot = JSON.parse(booking.snapshot_json) as { title?: string };
   const pi = await stripe.paymentIntents.create({
-    amount: dollarsToCents(booking.amount_due), // server-authoritative — never from the client
+    amount: amountCents, // server-authoritative — never from the client
     currency: booking.currency,
-    // Deposit favors instant methods (books the date on the spot); balance also
-    // offers ACH (~0.8% capped at $5 vs ~2.9% card). Wallets ride on 'card' once
-    // the payment domain is registered (docs/PORTAL.md §3a).
+    // Deposit/full favor instant methods (books the date on the spot); balance also offers
+    // ACH (~0.8% capped at $5 vs ~2.9% card). Wallets ride on 'card' once the payment domain
+    // is registered (docs/PORTAL.md §3a).
     payment_method_types: booking.pay_target === 'deposit' ? ['card'] : ['card', 'us_bank_account'],
-    description: `${booking.pay_target === 'deposit' ? 'Deposit' : 'Balance'} — ${snapshot.title ?? 'event booking'}`,
-    metadata: { booking_token: token, kind: booking.pay_target, related_type: booking.related_type, related_id: booking.related_id },
+    description: `${kind === 'full' ? 'Full payment' : kind === 'deposit' ? 'Deposit' : 'Balance'} — ${snapshot.title ?? 'event booking'}`,
+    metadata: meta,
   });
-  await upsertPaymentEvent(env.DB, { booking_token: token, stripe_pi_id: pi.id, kind: booking.pay_target, amount: booking.amount_due, status: 'created' });
+  await upsertPaymentEvent(env.DB, { booking_token: token, stripe_pi_id: pi.id, kind, amount, status: 'created' });
   await setBookingStatus(env.DB, token, booking.status, { dirty: false, activePiId: pi.id });
   return json({ client_secret: pi.client_secret, amount_cents: pi.amount, publishable_key: publishableKeyOf(booking) });
 }
@@ -307,7 +326,7 @@ async function reconcilePayments(env: Env): Promise<void> {
   for (const r of rows) {
     try {
       const pi = await stripe.paymentIntents.retrieve(r.active_pi_id);
-      const kind = pi.metadata?.kind === 'balance' ? 'balance' : 'deposit';
+      const kind: PayKind = pi.metadata?.kind === 'balance' ? 'balance' : pi.metadata?.kind === 'full' ? 'full' : 'deposit';
       if (pi.status === 'succeeded' && r.status !== 'paid') {
         await upsertPaymentEvent(env.DB, { booking_token: r.token, stripe_pi_id: pi.id, kind, amount: pi.amount / 100, status: 'succeeded' });
         await setBookingStatus(env.DB, r.token, 'paid');
@@ -337,7 +356,7 @@ export async function handleStripeWebhook(req: Request, env: Env): Promise<Respo
     if (!token) return; // not ours
     const booking = await getBooking(env.DB, token);
     if (!booking) return; // already purged — replay of an acked event; nothing to redo
-    const kind = (pi.metadata?.kind === 'balance' ? 'balance' : 'deposit');
+    const kind: PayKind = pi.metadata?.kind === 'balance' ? 'balance' : pi.metadata?.kind === 'full' ? 'full' : 'deposit';
     await upsertPaymentEvent(env.DB, { booking_token: token, stripe_pi_id: pi.id, kind, amount: pi.amount / 100, status: piStatus });
     if (piStatus === 'succeeded') {
       await setBookingStatus(env.DB, token, 'paid');

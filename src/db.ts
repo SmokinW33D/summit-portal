@@ -2,7 +2,7 @@
  * D1 access for the booking portal. All SQL lives here; handlers stay thin.
  * Rows are short-lived: dirty → polled → acked → terminal rows purged.
  */
-import { TERMINAL_STATUSES, nowIso, type BookingStatus, type PayTarget } from './logic';
+import { TERMINAL_STATUSES, nowIso, type BookingStatus, type PayKind, type PayTarget } from './logic';
 
 export interface BookingRow {
   token: string;
@@ -14,6 +14,7 @@ export interface BookingRow {
   contract_html: string;
   doc_hash: string;
   amount_due: number;
+  full_amount: number | null; // whole total for "pay in full" on a deposit link (else null)
   currency: string;
   status: BookingStatus;
   active_pi_id: string | null;
@@ -40,7 +41,7 @@ export interface PaymentEventRow {
   id: string;
   booking_token: string;
   stripe_pi_id: string;
-  kind: PayTarget;
+  kind: PayKind;
   amount: number;
   status: 'created' | 'processing' | 'succeeded' | 'failed' | 'refunded';
   created_at: string;
@@ -82,8 +83,16 @@ export async function findActiveForEntity(
 export async function findSettledForEntity(
   db: D1Database, relatedType: string, relatedId: string, payTarget: PayTarget,
 ): Promise<BookingRow | null> {
+  // Match by the PAYMENT's kind, not just the link's pay_target, so a "pay in full" (kind
+  // 'full') counts as settling BOTH the deposit and the balance — the owner can't then send
+  // a second link for money already collected.
   return await db
-    .prepare("SELECT * FROM booking WHERE related_type = ? AND related_id = ? AND pay_target = ? AND status IN ('paid','processing')")
+    .prepare(`SELECT b.* FROM booking b
+      JOIN payment_event pe ON pe.booking_token = b.token
+      WHERE b.related_type = ? AND b.related_id = ?
+        AND pe.status IN ('succeeded', 'processing')
+        AND (pe.kind = ? OR pe.kind = 'full')
+      LIMIT 1`)
     .bind(relatedType, relatedId, payTarget)
     .first<BookingRow>();
 }
@@ -99,12 +108,12 @@ export async function deleteBooking(db: D1Database, token: string): Promise<void
 export async function insertBooking(db: D1Database, row: BookingRow): Promise<void> {
   await db
     .prepare(`INSERT INTO booking (token, related_type, related_id, pay_target, require_signature,
-        snapshot_json, contract_html, doc_hash, amount_due, currency, status, active_pi_id,
+        snapshot_json, contract_html, doc_hash, amount_due, full_amount, currency, status, active_pi_id,
         desktop_dirty, created_at, updated_at, expires_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
     .bind(
       row.token, row.related_type, row.related_id, row.pay_target, row.require_signature,
-      row.snapshot_json, row.contract_html, row.doc_hash, row.amount_due, row.currency,
+      row.snapshot_json, row.contract_html, row.doc_hash, row.amount_due, row.full_amount, row.currency,
       row.status, row.active_pi_id, row.desktop_dirty, row.created_at, row.updated_at, row.expires_at,
     )
     .run();
@@ -142,7 +151,7 @@ export async function insertSignature(db: D1Database, sig: SignatureRow): Promis
 /** Idempotent by PaymentIntent id — a replayed webhook overwrites with the same values. */
 export async function upsertPaymentEvent(
   db: D1Database,
-  p: { booking_token: string; stripe_pi_id: string; kind: PayTarget; amount: number; status: PaymentEventRow['status'] },
+  p: { booking_token: string; stripe_pi_id: string; kind: PayKind; amount: number; status: PaymentEventRow['status'] },
 ): Promise<void> {
   const now = nowIso();
   await db

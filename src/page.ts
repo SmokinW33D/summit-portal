@@ -65,6 +65,13 @@ export function renderBookingShell(token: string): string {
   .notice.ok .big { color:#2e7d4f; }
   .fine { color:var(--faint); font-size:12.5px; margin-top:14px; }
   #payment-element { margin-top:14px; }
+  .choices { display:flex; flex-direction:column; gap:8px; margin:2px 0 6px; }
+  .choice { display:block; width:100%; text-align:left; padding:11px 13px; font:inherit; border:1.5px solid var(--line); border-radius:10px; background:#fff; cursor:pointer; }
+  .choice.on { border-color:var(--accent); box-shadow:inset 0 0 0 1px var(--accent); background:rgba(30,120,174,.05); }
+  .choice-top { display:flex; justify-content:space-between; align-items:baseline; gap:10px; }
+  .choice-title { font-size:14px; font-weight:800; color:var(--ink); }
+  .choice-amt { font-size:15px; font-weight:800; color:var(--ink); }
+  .choice-sub { font-size:12px; color:var(--muted); margin-top:2px; }
   .footer { text-align:center; color:var(--faint); font-size:12px; margin-top:8px; }
 </style>
 <script src="https://js.stripe.com/v3/"></script>
@@ -290,43 +297,83 @@ function signCard() {
 }
 
 // ─── Pay ────────────────────────────────────────────────────────────────────
+function choiceRow(title, amount, sub, active) {
+  var row = document.createElement('button'); row.type = 'button'; row.className = 'choice' + (active ? ' on' : '');
+  var top = el('div', 'choice-top');
+  top.appendChild(el('span', 'choice-title', title));
+  top.appendChild(el('span', 'choice-amt', money(amount)));
+  row.appendChild(top);
+  row.appendChild(el('div', 'choice-sub', sub));
+  return { row: row, setActive: function (on) { row.className = 'choice' + (on ? ' on' : ''); } };
+}
+
 function payCard() {
   var card = el('div', 'card');
-  card.appendChild(el('h2', null, (booking.pay_target === 'deposit' ? 'Pay your deposit' : 'Pay your balance') + ' — ' + money(booking.amount_due)));
-  if (booking.pay_target === 'deposit') card.appendChild(el('div', 'meta', 'Your date is locked in the moment your deposit goes through.'));
+  // "Pay in full" is offered only on a deposit link that carries a larger whole-contract total.
+  var canFull = booking.pay_target === 'deposit' && typeof booking.full_amount === 'number' && booking.full_amount > booking.amount_due;
+  var depAmt = booking.amount_due, fullAmt = booking.full_amount;
+  var choice = 'deposit';
+
+  card.appendChild(el('h2', null, booking.pay_target === 'deposit' ? (canFull ? 'Complete your booking' : 'Pay your deposit — ' + money(depAmt)) : 'Pay your balance — ' + money(depAmt)));
+  if (booking.pay_target === 'deposit') card.appendChild(el('div', 'meta', 'Your date is locked in the moment your payment goes through.'));
   else card.appendChild(el('div', 'meta', 'Card is instant; bank transfer (ACH) works too and takes a few business days to clear.'));
+
+  var optDep = null, optFull = null;
+  if (canFull) {
+    var choices = el('div', 'choices');
+    optDep = choiceRow('Pay deposit', depAmt, 'Locks your date now — the balance is due later.', true);
+    optFull = choiceRow('Pay in full', fullAmt, 'Settle everything today — nothing left to pay.', false);
+    choices.appendChild(optDep.row); choices.appendChild(optFull.row);
+    card.appendChild(choices);
+  }
 
   var mount = el('div'); mount.id = 'payment-element';
   var err = el('div', 'err', '');
-  var btn = el('button', 'btn', 'Pay ' + money(booking.amount_due)); btn.type = 'button'; btn.disabled = true;
+  var btn = el('button', 'btn', 'Pay ' + money(depAmt)); btn.type = 'button'; btn.disabled = true;
   card.appendChild(mount); card.appendChild(btn); card.appendChild(err);
   card.appendChild(el('div', 'fine', 'Payments are processed securely by Stripe. Your card or bank details go directly to Stripe and never touch our servers.'));
 
   if (!stripe) { err.textContent = 'The payment form could not load. Please refresh the page.'; return card; }
 
   var elements = null;
-  fetch(API + '/pay-intent', { method: 'POST' })
-    .then(function (r) { return r.json().catch(function () { return {}; }).then(function (j) { return { s: r.status, j: j }; }); })
-    .then(function (res) {
-      // Already paid (e.g. link reopened right after paying, before the confirmation
-      // lands) — show the done state, never the form.
-      if (res.s === 409 && res.j && /already paid/i.test(res.j.error || '')) { booking.status = 'paid'; return route(); }
-      if (res.s !== 200) throw new Error(res.j && res.j.error || 'Could not start the payment.');
-      return stripe.retrievePaymentIntent(res.j.client_secret).then(function (r2) {
-        var st = r2 && r2.paymentIntent && r2.paymentIntent.status;
-        if (st === 'succeeded') { booking.status = 'paid'; return route(); }
-        if (st === 'processing') { booking.status = 'processing'; return route(); }
-        elements = stripe.elements({
-          clientSecret: res.j.client_secret,
-          appearance: { theme: 'stripe', variables: { colorPrimary: '#1e78ae', fontFamily: "'Nunito Sans', Helvetica, Arial, sans-serif" } },
+  function amountFor(c) { return c === 'full' ? fullAmt : depAmt; }
+
+  // (Re)load the PaymentIntent for the chosen amount and mount a fresh Payment Element, so
+  // switching deposit↔full always reflects the right amount. The server is authoritative.
+  function loadIntent(c) {
+    choice = c;
+    err.textContent = ''; btn.disabled = true; btn.textContent = 'Pay ' + money(amountFor(c)); mount.innerHTML = ''; elements = null;
+    if (canFull) { optDep.setActive(c === 'deposit'); optFull.setActive(c === 'full'); }
+    fetch(API + '/pay-intent' + (c === 'full' ? '?choice=full' : ''), { method: 'POST' })
+      .then(function (r) { return r.json().catch(function () { return {}; }).then(function (j) { return { s: r.status, j: j }; }); })
+      .then(function (res) {
+        // Already paid (e.g. link reopened right after paying) — show the done state, never the form.
+        if (res.s === 409 && res.j && /already paid/i.test(res.j.error || '')) { booking.status = 'paid'; return route(); }
+        if (res.s !== 200) throw new Error(res.j && res.j.error || 'Could not start the payment.');
+        return stripe.retrievePaymentIntent(res.j.client_secret).then(function (r2) {
+          var st = r2 && r2.paymentIntent && r2.paymentIntent.status;
+          if (st === 'succeeded') { booking.status = 'paid'; return route(); }
+          if (st === 'processing') { booking.status = 'processing'; return route(); }
+          if (choice !== c) return; // a newer choice superseded this load
+          elements = stripe.elements({
+            clientSecret: res.j.client_secret,
+            appearance: { theme: 'stripe', variables: { colorPrimary: '#1e78ae', fontFamily: "'Nunito Sans', Helvetica, Arial, sans-serif" } },
+          });
+          elements.create('payment').mount('#payment-element');
+          btn.disabled = false;
         });
-        elements.create('payment').mount('#payment-element');
-        btn.disabled = false;
-      });
-    })
-    .catch(function (e2) { err.textContent = e2.message; });
+      })
+      .catch(function (e2) { err.textContent = e2.message; });
+  }
+
+  if (canFull) {
+    optDep.row.addEventListener('click', function () { if (choice !== 'deposit') loadIntent('deposit'); });
+    optFull.row.addEventListener('click', function () { if (choice !== 'full') loadIntent('full'); });
+  }
+  loadIntent('deposit');
 
   btn.addEventListener('click', function () {
+    if (!elements) return;
     err.textContent = ''; btn.disabled = true; btn.textContent = 'Processing\\u2026';
     stripe.confirmPayment({ elements: elements, confirmParams: { return_url: window.location.href }, redirect: 'if_required' })
       .then(function (res) {
@@ -336,7 +383,7 @@ function payCard() {
         else if (st === 'processing') { booking.status = 'processing'; route(); }
         else { throw new Error('Payment did not complete. Please try again.'); }
       })
-      .catch(function (e2) { err.textContent = e2.message; btn.disabled = false; btn.textContent = 'Pay ' + money(booking.amount_due); });
+      .catch(function (e2) { err.textContent = e2.message; btn.disabled = false; btn.textContent = 'Pay ' + money(amountFor(choice)); });
   });
   return card;
 }

@@ -61,9 +61,18 @@ const goodPublish = {
 
 test('validatePublishPayload: happy path + defaulted expiry', () => {
   const r = validatePublishPayload(goodPublish);
-  assert.ok(r.ok);
+  assert.ok(r.ok && r.value.full_amount === null);
   const r2 = validatePublishPayload({ ...goodPublish, expires_days: undefined });
   assert.ok(r2.ok && r2.value.expires_days === 14);
+});
+
+test('validatePublishPayload: full_amount (pay-in-full) rules', () => {
+  const ok = validatePublishPayload({ ...goodPublish, full_amount: 2500 });
+  assert.ok(ok.ok && ok.value.full_amount === 2500); // deposit link keeps a larger total
+  const notMore = validatePublishPayload({ ...goodPublish, full_amount: 700 });
+  assert.equal(notMore.ok, false); // must exceed the deposit
+  const balance = validatePublishPayload({ ...goodPublish, pay_target: 'balance', full_amount: 2500 });
+  assert.ok(balance.ok && balance.value.full_amount === null); // ignored on a balance link
 });
 
 test('validatePublishPayload: rejections', () => {
