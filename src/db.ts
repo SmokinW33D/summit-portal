@@ -76,6 +76,17 @@ export async function findActiveForEntity(
     .first<BookingRow>();
 }
 
+/** A paid or still-clearing booking for the same entity + target (kept until the desktop
+ *  acks and we purge). Used to refuse a second link that would collect the same money twice. */
+export async function findSettledForEntity(
+  db: D1Database, relatedType: string, relatedId: string, payTarget: PayTarget,
+): Promise<BookingRow | null> {
+  return await db
+    .prepare("SELECT * FROM booking WHERE related_type = ? AND related_id = ? AND pay_target = ? AND status IN ('paid','processing')")
+    .bind(relatedType, relatedId, payTarget)
+    .first<BookingRow>();
+}
+
 export async function deleteBooking(db: D1Database, token: string): Promise<void> {
   await db.batch([
     db.prepare('DELETE FROM payment_event WHERE booking_token = ?').bind(token),

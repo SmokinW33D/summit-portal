@@ -12,7 +12,7 @@ import {
   validatePublishPayload, validateSignPayload,
 } from './logic';
 import {
-  ackAndPurge, deleteBooking, expireOverdue, findActiveForEntity, getBooking, getConfig,
+  ackAndPurge, deleteBooking, expireOverdue, findActiveForEntity, findSettledForEntity, getBooking, getConfig,
   getSignature, insertBooking, insertSignature, listDirtyUpdates, purgeAckedTerminal,
   setBookingStatus, setConfig, upsertPaymentEvent, type BookingRow,
 } from './db';
@@ -94,6 +94,16 @@ export async function handlePublish(req: Request, env: Env): Promise<Response> {
   // The hash the desktop computed must match what actually arrived (transit integrity).
   if ((await sha256Hex(p.contract_html)) !== p.doc_hash) {
     return json({ error: 'doc_hash does not match contract_html' }, 400);
+  }
+
+  // Never collect the same money twice: if this deposit/balance was already paid (or is
+  // clearing) on a prior link we haven't purged yet, refuse a new one. The portal learns of
+  // payment instantly via the webhook, so this closes the window before the desktop syncs.
+  const settled = await findSettledForEntity(env.DB, p.related_type, p.related_id, p.pay_target);
+  if (settled) {
+    return json({ error: settled.status === 'processing'
+      ? `A ${p.pay_target} payment on this booking is still clearing — no new link is needed.`
+      : `The ${p.pay_target} has already been paid — no new link is needed.` }, 409);
   }
 
   // Republish replaces the previous OPEN link only. Money in motion must settle,
