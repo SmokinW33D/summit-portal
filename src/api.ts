@@ -228,7 +228,7 @@ export async function handlePayIntent(env: Env, token: string): Promise<Response
     // Deposit favors instant methods (books the date on the spot); balance also
     // offers ACH (~0.8% capped at $5 vs ~2.9% card). Wallets ride on 'card' once
     // the payment domain is registered (docs/PORTAL.md §3a).
-    payment_method_types: booking.pay_target === 'deposit' ? ['card', 'link'] : ['card', 'link', 'us_bank_account'],
+    payment_method_types: booking.pay_target === 'deposit' ? ['card'] : ['card', 'us_bank_account'],
     description: `${booking.pay_target === 'deposit' ? 'Deposit' : 'Balance'} — ${snapshot.title ?? 'event booking'}`,
     metadata: { booking_token: token, kind: booking.pay_target },
   });
