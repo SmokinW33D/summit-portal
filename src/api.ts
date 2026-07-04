@@ -273,8 +273,11 @@ export async function handlePayIntent(env: Env, token: string, choice: 'deposit'
   const amount = payFull ? booking.full_amount! : booking.amount_due;
   const kind: PayKind = payFull ? 'full' : booking.pay_target;
   const amountCents = dollarsToCents(amount);
-  const snapshot = JSON.parse(booking.snapshot_json) as { title?: string };
+  const snapshot = JSON.parse(booking.snapshot_json) as { title?: string; client_email?: string };
   const meta = { booking_token: token, kind, related_type: booking.related_type, related_id: booking.related_id };
+  // Stripe emails the client a receipt on success (needs the account's "email customers"
+  // setting on — see PORTAL runbook). Only set when we actually have their email.
+  const receiptEmail = typeof snapshot.client_email === 'string' && snapshot.client_email.includes('@') ? snapshot.client_email : undefined;
   const stripe = stripeClient(env);
 
   // Reuse the in-flight PaymentIntent so refresh/double-click never double-charges. If the
@@ -287,7 +290,7 @@ export async function handlePayIntent(env: Env, token: string, choice: 'deposit'
         return json({ client_secret: pi.client_secret, amount_cents: pi.amount, publishable_key: publishableKeyOf(booking) });
       }
       try {
-        const upd = await stripe.paymentIntents.update(pi.id, { amount: amountCents, metadata: meta });
+        const upd = await stripe.paymentIntents.update(pi.id, { amount: amountCents, metadata: meta, ...(receiptEmail ? { receipt_email: receiptEmail } : {}) });
         await upsertPaymentEvent(env.DB, { booking_token: token, stripe_pi_id: upd.id, kind, amount, status: 'created' });
         return json({ client_secret: upd.client_secret, amount_cents: upd.amount, publishable_key: publishableKeyOf(booking) });
       } catch {
@@ -306,6 +309,7 @@ export async function handlePayIntent(env: Env, token: string, choice: 'deposit'
     payment_method_types: ['card', 'us_bank_account'],
     description: `${kind === 'full' ? 'Full payment' : kind === 'deposit' ? 'Deposit' : 'Balance'} — ${snapshot.title ?? 'event booking'}`,
     metadata: meta,
+    ...(receiptEmail ? { receipt_email: receiptEmail } : {}),
   });
   await upsertPaymentEvent(env.DB, { booking_token: token, stripe_pi_id: pi.id, kind, amount, status: 'created' });
   await setBookingStatus(env.DB, token, booking.status, { dirty: false, activePiId: pi.id });

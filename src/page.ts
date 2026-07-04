@@ -42,8 +42,18 @@ export function renderBookingShell(token: string): string {
   .sub { color:var(--faint); font-size:12.5px; }
   .money { display:flex; justify-content:space-between; font-size:14px; padding:5px 6px; }
   .money.due { font-size:17px; font-weight:800; border-top:2px solid var(--ink); margin-top:6px; padding-top:11px; }
-  .agreement { border:1px solid var(--line); border-radius:8px; overflow:hidden; }
-  .agreement iframe { width:100%; height:460px; border:0; display:block; background:#fff; }
+  .agreement { border:1px solid var(--line); border-radius:8px; overflow:hidden; background:#fff; }
+  .agreement .doc { position:relative; overflow:hidden; width:100%; background:#fff; }
+  .agreement iframe { border:0; display:block; background:#fff; transform-origin:top left; }
+  .docActions { display:flex; justify-content:space-between; align-items:center; gap:12px; padding:9px 12px; border-top:1px solid var(--line); }
+  .linkbtn { background:none; border:0; color:var(--accent); font:inherit; font-size:12.5px; font-weight:700; cursor:pointer; padding:0; }
+  .sumline { display:flex; justify-content:space-between; font-size:14px; margin-top:12px; padding-top:12px; border-top:1px solid var(--line); }
+  .sumline .lbl { color:var(--muted); }
+  .sumline .val { font-weight:800; }
+  .paysum { background:#f8fafb; border:1px solid var(--line); border-radius:9px; padding:12px 14px; margin-bottom:14px; }
+  .paysum .row { display:flex; justify-content:space-between; font-size:13.5px; padding:3px 0; }
+  .paysum .row.big { font-size:16px; font-weight:800; border-top:1px solid var(--line); margin-top:6px; padding-top:9px; }
+  .paysum .hint { font-size:12px; color:var(--muted); margin-top:8px; }
   label { display:block; font-size:13px; font-weight:700; margin:14px 0 5px; }
   input[type=text] { width:100%; padding:10px 12px; font:inherit; font-size:15px; border:1px solid var(--line); border-radius:8px; }
   input[type=text]:focus { outline:2px solid var(--accent); border-color:var(--accent); }
@@ -138,8 +148,10 @@ function route() {
     return notice('', 'This booking link has expired.', 'Please contact us for a fresh link — we\\u2019ll get you sorted right away. ' + contactLine());
   }
   if (booking.status === 'paid') {
-    return notice('ok', booking.pay_target === 'deposit' ? 'You\\u2019re booked!' : 'Payment received — thank you!',
-      booking.pay_target === 'deposit' ? 'Your deposit is in and your date is locked. A receipt is on its way.' : 'Your balance is settled. See you at the event!');
+    var paidSmall = (booking.pay_target === 'deposit'
+      ? 'Your deposit is in and your date is locked.'
+      : 'Your balance is settled. See you at the event!') + ' A receipt has been emailed to you.';
+    return notice('ok', booking.pay_target === 'deposit' ? 'You\\u2019re booked!' : 'Payment received — thank you!', paidSmall);
   }
   if (booking.status === 'processing') {
     return notice('ok', 'Bank transfer initiated', 'Your payment is on its way — bank transfers take a few business days to clear. We\\u2019ll confirm as soon as it lands.');
@@ -147,69 +159,93 @@ function route() {
   render();
 }
 
-// ─── Main view: summary + agreement + sign + pay ───────────────────────────
+// ─── Main view: header + agreement + sign/pay ───────────────────────────────
 function render() {
   app.textContent = '';
   var s = booking.snapshot || {};
   var needSign = booking.require_signature && !booking.signed;
 
+  // Header: event, a slim total line, and a stable step tracker.
   var head = el('div', 'card');
   head.appendChild(el('h1', null, s.title || 'Your event'));
   var metaBits = [fmtDate(s.event_date), s.event_time, s.venue, s.guest_count ? s.guest_count + ' guests' : null].filter(Boolean);
   head.appendChild(el('div', 'meta', metaBits.join('  ·  ')));
-  var steps = el('div', 'steps');
-  steps.appendChild(el('span', 'step done', '1 · Review'));
-  if (booking.require_signature) steps.appendChild(el('span', 'step' + (needSign ? ' on' : ' done'), '2 · Sign'));
-  steps.appendChild(el('span', 'step' + (needSign ? '' : ' on'), (booking.require_signature ? '3' : '2') + ' · Pay'));
-  head.appendChild(steps);
+  if (typeof s.total === 'number') {
+    var sum = el('div', 'sumline');
+    sum.appendChild(el('span', 'lbl', 'Event total'));
+    sum.appendChild(el('span', 'val', money(s.total)));
+    head.appendChild(sum);
+  }
+  head.appendChild(buildSteps(needSign));
   app.appendChild(head);
 
-  if (Array.isArray(s.services) && s.services.length) {
-    var svc = el('div', 'card');
-    svc.appendChild(el('h2', null, 'What\\u2019s included'));
-    var t = el('table', 'svc');
-    s.services.forEach(function (it) {
-      var tr = el('tr');
-      tr.appendChild(el('td', 'qty', it.qty ? String(it.qty) + '\\u00d7' : ''));
-      var td = el('td');
-      td.appendChild(el('div', null, it.name || ''));
-      if (it.sub) td.appendChild(el('div', 'sub', it.sub));
-      tr.appendChild(td);
-      t.appendChild(tr);
-    });
-    svc.appendChild(t);
-    if (typeof s.total === 'number') {
-      var rows = [['Event total', s.total]];
-      if (booking.pay_target === 'deposit' && typeof s.balance === 'number') rows.push(['Remaining balance (later)', s.balance]);
-      rows.forEach(function (r) {
-        var m = el('div', 'money');
-        m.appendChild(el('span', null, r[0]));
-        m.appendChild(el('span', null, money(r[1])));
-        svc.appendChild(m);
-      });
-    }
-    var due = el('div', 'money due');
-    due.appendChild(el('span', null, booking.pay_target === 'deposit' ? 'Deposit due today' : 'Balance due'));
-    due.appendChild(el('span', null, money(booking.amount_due)));
-    svc.appendChild(due);
-    app.appendChild(svc);
-  }
-
-  var agr = el('div', 'card');
-  agr.appendChild(el('h2', null, 'Your agreement'));
-  var box = el('div', 'agreement');
-  var frame = document.createElement('iframe');
-  frame.setAttribute('sandbox', '');
-  frame.setAttribute('title', 'Event Booking Agreement');
-  frame.srcdoc = booking.contract_html;
-  box.appendChild(frame);
-  agr.appendChild(box);
-  if (booking.signed) agr.appendChild(el('div', 'fine', 'Signed by ' + booking.signer_name + ' on ' + fmtDate(booking.signed_at) + '.'));
-  app.appendChild(agr);
+  app.appendChild(agreementCard());
 
   if (needSign) app.appendChild(signCard());
   else app.appendChild(payCard());
 }
+
+// A stable step tracker — the number of steps never changes within a link (the detail
+// tables live in the agreement/estimate, so nothing to duplicate up top).
+function buildSteps(needSign) {
+  var steps = el('div', 'steps');
+  var n = 1;
+  function add(label, state) { steps.appendChild(el('span', 'step ' + state, n + ' · ' + label)); n++; }
+  add('Review', 'done');
+  if (booking.require_signature) add('Sign', booking.signed ? 'done' : 'on');
+  add('Pay', needSign ? '' : 'on');
+  return steps;
+}
+
+// The agreement, scaled to fit the card (the source is a full letter page, so we render it
+// at its natural width inside a same-origin iframe and scale the whole frame to fit — no more
+// zoomed-in blob). A "View full agreement" toggle expands it to its full height.
+function agreementCard() {
+  var agr = el('div', 'card');
+  agr.appendChild(el('h2', null, 'Your agreement'));
+  var box = el('div', 'agreement');
+  var doc = el('div', 'doc');
+  var frame = document.createElement('iframe');
+  frame.setAttribute('sandbox', 'allow-same-origin'); // trusted desktop-rendered HTML, scripts still blocked
+  frame.setAttribute('title', 'Event Booking Agreement');
+  frame.srcdoc = booking.contract_html;
+  doc.appendChild(frame);
+  box.appendChild(doc);
+
+  var actions = el('div', 'docActions');
+  actions.appendChild(el('span', 'sub', booking.signed ? ('Signed by ' + booking.signer_name + ' on ' + fmtDate(booking.signed_at)) : 'Please review the full agreement below.'));
+  var expand = el('button', 'linkbtn', 'View full agreement'); expand.type = 'button';
+  actions.appendChild(expand);
+  box.appendChild(actions);
+  agr.appendChild(box);
+
+  currentDoc = doc; currentFrame = frame;
+  frame.addEventListener('load', function () { scaleDoc(doc, frame); });
+  expand.addEventListener('click', function () {
+    doc.classList.toggle('full');
+    expand.textContent = doc.classList.contains('full') ? 'Collapse' : 'View full agreement';
+    scaleDoc(doc, frame);
+  });
+  return agr;
+}
+
+var currentDoc = null, currentFrame = null;
+function scaleDoc(doc, frame) {
+  try {
+    var cw = doc.clientWidth || 600;
+    var d = frame.contentDocument;
+    var natW = Math.max(816, d.documentElement.scrollWidth, d.body ? d.body.scrollWidth : 0);
+    var natH = Math.max(d.documentElement.scrollHeight, d.body ? d.body.scrollHeight : 0) || 1056;
+    var scale = cw / natW;
+    frame.style.width = natW + 'px';
+    frame.style.height = natH + 'px';
+    frame.style.transform = 'scale(' + scale + ')';
+    doc.style.height = (doc.classList.contains('full') ? Math.ceil(natH * scale) : Math.min(560, Math.ceil(natH * scale))) + 'px';
+  } catch (e) {
+    frame.style.width = '100%'; frame.style.transform = 'none'; frame.style.height = '560px'; doc.style.height = '560px';
+  }
+}
+window.addEventListener('resize', function () { if (currentDoc && currentFrame) scaleDoc(currentDoc, currentFrame); });
 
 // ─── E-sign ─────────────────────────────────────────────────────────────────
 function signCard() {
@@ -297,6 +333,13 @@ function signCard() {
 }
 
 // ─── Pay ────────────────────────────────────────────────────────────────────
+function psRow(label, val, muted) {
+  var r = el('div', 'row');
+  var l = el('span', null, label), v = el('span', null, val);
+  if (muted) { l.style.color = 'var(--muted)'; v.style.color = 'var(--muted)'; }
+  r.appendChild(l); r.appendChild(v);
+  return r;
+}
 function choiceRow(title, amount, sub, active) {
   var row = document.createElement('button'); row.type = 'button'; row.className = 'choice' + (active ? ' on' : '');
   var top = el('div', 'choice-top');
@@ -314,9 +357,23 @@ function payCard() {
   var depAmt = booking.amount_due, fullAmt = booking.full_amount;
   var choice = 'deposit';
 
-  card.appendChild(el('h2', null, booking.pay_target === 'deposit' ? (canFull ? 'Complete your booking' : 'Pay your deposit — ' + money(depAmt)) : 'Pay your balance — ' + money(depAmt)));
-  if (booking.pay_target === 'deposit') card.appendChild(el('div', 'meta', 'Pay by card or bank transfer. Card locks your date instantly; a bank transfer (ACH) takes a few business days to clear.'));
-  else card.appendChild(el('div', 'meta', 'Card is instant; bank transfer (ACH) works too and takes a few business days to clear.'));
+  card.appendChild(el('h2', null, booking.pay_target === 'deposit' ? 'Complete your booking' : 'Pay your balance'));
+
+  // Clear "what you're paying" summary so deposit vs. full vs. remaining is never ambiguous.
+  var s = booking.snapshot || {};
+  var ps = el('div', 'paysum');
+  if (typeof s.total === 'number') ps.appendChild(psRow('Event total', money(s.total)));
+  if (booking.pay_target === 'deposit') {
+    ps.appendChild(psRow(canFull ? 'Deposit — books your date' : 'Deposit due today', money(depAmt), true));
+    if (typeof s.balance === 'number' && s.balance > 0) ps.appendChild(psRow('Remaining balance (due before the event)', money(s.balance), true));
+    ps.appendChild(el('div', 'hint', canFull
+      ? 'Pay just the deposit to lock your date, or pay in full below — your choice.'
+      : 'Your deposit locks the date; the remaining balance is due before the event.'));
+  } else {
+    ps.appendChild(psRow('Remaining balance due today', money(depAmt), true));
+  }
+  card.appendChild(ps);
+  card.appendChild(el('div', 'meta', 'Pay by bank transfer (ACH) or card. Card is instant; a bank transfer clears in a few business days.'));
 
   var optDep = null, optFull = null;
   if (canFull) {
@@ -359,7 +416,8 @@ function payCard() {
             clientSecret: res.j.client_secret,
             appearance: { theme: 'stripe', variables: { colorPrimary: '#1e78ae', fontFamily: "'Nunito Sans', Helvetica, Arial, sans-serif" } },
           });
-          elements.create('payment').mount('#payment-element');
+          // ACH (bank transfer) first — big-ticket bookings cost ~0.8% (capped) vs ~3% on card.
+          elements.create('payment', { paymentMethodOrder: ['us_bank_account', 'card'] }).mount('#payment-element');
           btn.disabled = false;
         });
       })
