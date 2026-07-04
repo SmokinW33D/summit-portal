@@ -193,6 +193,22 @@ export async function handlePublish(req: Request, env: Env): Promise<Response> {
   return json({ token: row.token, expires_at: row.expires_at }, 201);
 }
 
+// ─── Desktop: push documents after booking (real invoice + fully-signed contract) ──
+export async function handleUpdateDocuments(req: Request, env: Env, token: string): Promise<Response> {
+  const denied = await requireDesktopAuth(req, env);
+  if (denied) return denied;
+  if (!(await getBooking(env.DB, token))) return json({ error: 'not found' }, 404);
+  const body = await readJson(req) as { documents?: unknown } | null;
+  if (!body || !Array.isArray(body.documents)) return json({ error: 'documents' }, 400);
+  for (const d of body.documents) {
+    const dd = d as Record<string, unknown>;
+    if (dd.kind !== 'estimate' && dd.kind !== 'invoice' && dd.kind !== 'contract') return json({ error: 'document kind' }, 400);
+    if (typeof dd.html !== 'string' || !dd.html || dd.html.length > 1_800_000) return json({ error: 'document too large' }, 400);
+    await upsertBookingDocument(env.DB, token, dd.kind, dd.html);
+  }
+  return json({ ok: true });
+}
+
 /** The Stripe publishable key travels in the snapshot (it's public), so it isn't Worker config. */
 function publishableKeyOf(booking: BookingRow): string {
   try {

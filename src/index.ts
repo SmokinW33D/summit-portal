@@ -15,7 +15,7 @@
  * Full runbook: docs/PORTAL.md at the repo root.
  */
 import {
-  handleAck, handleCancel, handleGetBooking, handleGetDoc, handlePayIntent, handlePublish, handleSign,
+  handleAck, handleCancel, handleGetBooking, handleGetDoc, handlePayIntent, handlePublish, handleSign, handleUpdateDocuments,
   handleStripeWebhook, handleUpdates, json, runSweep,
 } from './api';
 import { TOKEN_RE } from './logic';
@@ -106,6 +106,7 @@ async function route(req: Request, env: Env): Promise<Response> {
         return handlePayIntent(env, token, choice);
       }
       if (action === 'cancel' && req.method === 'POST') return handleCancel(req, env, token);
+      if (action === 'documents' && req.method === 'POST') return handleUpdateDocuments(req, env, token);
       return json({ error: 'not found' }, 404);
     }
 
