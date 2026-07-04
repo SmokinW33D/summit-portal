@@ -251,6 +251,9 @@ window.addEventListener('resize', function () { if (currentDoc && currentFrame) 
 function signCard() {
   var card = el('div', 'card');
   card.appendChild(el('h2', null, 'Sign the agreement'));
+  if (booking.snapshot && booking.snapshot.countersigned) {
+    card.appendChild(el('div', 'meta', 'We\\u2019ve already signed this agreement \\u2014 add your signature below to finalize it.'));
+  }
 
   card.appendChild(el('label', null, 'Your full legal name'));
   var name = document.createElement('input');
