@@ -247,10 +247,21 @@ export async function setConfig(db: D1Database, key: string, value: string): Pro
 export async function listReconcilable(
   db: D1Database,
 ): Promise<{ token: string; active_pi_id: string; status: BookingStatus }[]> {
+  // 'partial' included so an in-flight BALANCE PaymentIntent still reconciles if its webhook is
+  // missed. (A partial booking with no active_pi_id — deposit done, balance not started — is
+  // skipped by the NOT NULL guard.)
   const r = await db
-    .prepare("SELECT token, active_pi_id, status FROM booking WHERE active_pi_id IS NOT NULL AND status IN ('open','signed','processing')")
+    .prepare("SELECT token, active_pi_id, status FROM booking WHERE active_pi_id IS NOT NULL AND status IN ('open','signed','processing','partial')")
     .all<{ token: string; active_pi_id: string; status: BookingStatus }>();
   return r.results;
+}
+
+/** Money settled (SUCCEEDED payments) on a booking so far, in dollars. */
+export async function sumSucceededPayments(db: D1Database, token: string): Promise<number> {
+  const r = await db
+    .prepare("SELECT COALESCE(SUM(amount), 0) AS n FROM payment_event WHERE booking_token = ? AND status = 'succeeded'")
+    .bind(token).first<{ n: number }>();
+  return r?.n ?? 0;
 }
 
 // ─── Refund notices (survive booking purge) ──────────────────────────────────────

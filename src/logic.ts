@@ -4,7 +4,32 @@
  * Uses only Web-standard globals (crypto.subtle, btoa) available in both runtimes.
  */
 
-export type BookingStatus = 'open' | 'signed' | 'processing' | 'paid' | 'expired' | 'cancelled';
+export type BookingStatus = 'open' | 'signed' | 'processing' | 'partial' | 'paid' | 'expired' | 'cancelled';
+
+const PAY_EPS = 0.005; // cent-level float tolerance
+
+/**
+ * One link carries the whole booking (deposit → balance). Given the money settled so far vs.
+ * the whole total, decide the booking's status after a payment event. 'partial' = a deposit
+ * cleared but the balance is still owed (non-terminal, so the link stays live for the balance).
+ */
+export function nextBookingStatus(p: {
+  piStatus: 'succeeded' | 'processing' | 'failed';
+  paid: number;       // sum of SUCCEEDED payments (dollars), including the one just applied
+  fullTotal: number;  // the whole amount to collect over the booking's life
+  requireSignature: boolean;
+}): BookingStatus {
+  if (p.piStatus === 'processing') return 'processing';
+  if (p.piStatus === 'succeeded') return p.paid >= p.fullTotal - PAY_EPS ? 'paid' : 'partial';
+  // failed: keep the booking 'partial' if a deposit already cleared; else back to sign/pay.
+  if (p.paid > PAY_EPS) return 'partial';
+  return p.requireSignature ? 'signed' : 'open';
+}
+
+/** What's still owed on the whole booking after the money settled so far. */
+export function remainingDue(fullTotal: number, paid: number): number {
+  return Math.max(0, Math.round((fullTotal - paid) * 100) / 100);
+}
 export type PayTarget = 'deposit' | 'balance';
 /** What a payment covers. 'full' = a deposit link paid in full (deposit + balance at once). */
 export type PayKind = PayTarget | 'full';

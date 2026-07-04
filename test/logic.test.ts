@@ -5,9 +5,35 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  addDaysIso, dollarsToCents, isExpiredAt, mintToken, safeEqual, sha256Hex, TOKEN_RE,
+  addDaysIso, dollarsToCents, isExpiredAt, mintToken, nextBookingStatus, remainingDue, safeEqual, sha256Hex, TOKEN_RE,
   validatePublishPayload, validateSignPayload,
 } from '../src/logic';
+
+test('nextBookingStatus: one link carries deposit → balance', () => {
+  const req = { requireSignature: true };
+  // deposit clears but doesn't cover the total → partial (balance still owed on same link)
+  assert.equal(nextBookingStatus({ piStatus: 'succeeded', paid: 475, fullTotal: 950, ...req }), 'partial');
+  // balance clears → fully paid
+  assert.equal(nextBookingStatus({ piStatus: 'succeeded', paid: 950, fullTotal: 950, ...req }), 'paid');
+  // pay-in-full in one shot → paid
+  assert.equal(nextBookingStatus({ piStatus: 'succeeded', paid: 950.004, fullTotal: 950, ...req }), 'paid'); // float-safe
+  // balance-only one-shot link → paid
+  assert.equal(nextBookingStatus({ piStatus: 'succeeded', paid: 500, fullTotal: 500, ...req }), 'paid');
+  // ACH in flight → processing regardless of amounts
+  assert.equal(nextBookingStatus({ piStatus: 'processing', paid: 0, fullTotal: 950, ...req }), 'processing');
+  // a balance failure AFTER the deposit cleared keeps the booking 'partial' (money's in)
+  assert.equal(nextBookingStatus({ piStatus: 'failed', paid: 475, fullTotal: 950, ...req }), 'partial');
+  // a failure with nothing collected drops back to sign / pay
+  assert.equal(nextBookingStatus({ piStatus: 'failed', paid: 0, fullTotal: 950, requireSignature: true }), 'signed');
+  assert.equal(nextBookingStatus({ piStatus: 'failed', paid: 0, fullTotal: 950, requireSignature: false }), 'open');
+});
+
+test('remainingDue: what the same link still collects', () => {
+  assert.equal(remainingDue(950, 475), 475);  // balance after deposit
+  assert.equal(remainingDue(950, 950), 0);     // fully paid
+  assert.equal(remainingDue(500, 500), 0);
+  assert.equal(remainingDue(950, 1000), 0);    // overpaid clamps to 0
+});
 
 test('mintToken: unguessable shape, unique', () => {
   const seen = new Set<string>();

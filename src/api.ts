@@ -8,13 +8,13 @@
 import type Stripe from 'stripe';
 import type { Env } from './index';
 import {
-  addDaysIso, dollarsToCents, isExpiredAt, mintToken, nowIso, safeEqual, sha256Hex,
+  addDaysIso, dollarsToCents, isExpiredAt, mintToken, nextBookingStatus, nowIso, remainingDue, safeEqual, sha256Hex,
   validatePublishPayload, validateSignPayload, type PayKind,
 } from './logic';
 import {
   ackAndPurge, ackRefundNotices, deleteBooking, expireOverdue, findActiveForEntity, findSettledForEntity,
   getBooking, getConfig, getSignature, insertBooking, insertRefundNotice, insertSignature, listDirtyRefundNotices,
-  listDirtyUpdates, listReconcilable, purgeAckedTerminal, setBookingStatus, setConfig, upsertPaymentEvent,
+  listDirtyUpdates, listReconcilable, purgeAckedTerminal, setBookingStatus, setConfig, sumSucceededPayments, upsertPaymentEvent,
   type BookingRow,
 } from './db';
 import { stripeClient, verifyWebhook } from './stripeClient';
@@ -206,17 +206,24 @@ export async function handleGetBooking(env: Env, token: string): Promise<Respons
   const { booking } = await loadLive(env, token);
   if (!booking) return json({ error: 'not found' }, 404);
   const sig = await getSignature(env.DB, token);
+  // A 'partial' booking (deposit cleared on this same link) is presented to the page as a
+  // plain BALANCE collection — remaining owed, no deposit/full choice — so the existing pay
+  // path renders it with no special-casing.
+  const partial = booking.status === 'partial';
+  const remaining = partial
+    ? remainingDue(booking.full_amount ?? booking.amount_due, await sumSucceededPayments(env.DB, token))
+    : booking.amount_due;
   return json({
     status: booking.status,
-    pay_target: booking.pay_target,
+    pay_target: partial ? 'balance' : booking.pay_target,
     require_signature: booking.require_signature === 1,
-    signed: !!sig,
+    signed: partial ? true : !!sig,
     signer_name: sig?.signer_name ?? null,
     signed_at: sig?.signed_at ?? null,
     snapshot: JSON.parse(booking.snapshot_json) as Record<string, unknown>,
     contract_html: booking.contract_html,
-    amount_due: booking.amount_due,
-    full_amount: booking.full_amount,
+    amount_due: remaining,
+    full_amount: partial ? null : booking.full_amount,
     currency: booking.currency,
     expires_at: booking.expires_at,
     stripe_publishable_key: publishableKeyOf(booking),
@@ -270,8 +277,15 @@ export async function handlePayIntent(env: Env, token: string, choice: 'deposit'
   // Amount + kind are SERVER-authoritative — the client only sends a choice string. "Pay in
   // full" is offered only on a deposit link that carries a larger whole-contract total.
   const payFull = choice === 'full' && booking.pay_target === 'deposit' && booking.full_amount != null && booking.full_amount > booking.amount_due;
-  const amount = payFull ? booking.full_amount! : booking.amount_due;
-  const kind: PayKind = payFull ? 'full' : booking.pay_target;
+  let amount = payFull ? booking.full_amount! : booking.amount_due;
+  let kind: PayKind = payFull ? 'full' : booking.pay_target;
+  // 'partial' = the deposit already cleared on this same link → now collect only the remaining
+  // balance (server-computed; the client's choice is ignored here).
+  if (booking.status === 'partial') {
+    amount = remainingDue(booking.full_amount ?? booking.amount_due, await sumSucceededPayments(env.DB, token));
+    kind = 'balance';
+    if (amount <= 0) return json({ error: 'already paid' }, 409);
+  }
   const amountCents = dollarsToCents(amount);
   const snapshot = JSON.parse(booking.snapshot_json) as { title?: string; client_email?: string };
   const meta = { booking_token: token, kind, related_type: booking.related_type, related_id: booking.related_id };
@@ -323,6 +337,18 @@ export async function handlePayIntent(env: Env, token: string, choice: 'deposit'
  * exactly as the webhook would. Runs on every desktop poll and on the cron, so a
  * collected payment can never sit unrecorded for long.
  */
+/**
+ * After a payment event lands, set the booking's status from the money settled so far — one
+ * link carries deposit→balance. On a 'partial' (deposit cleared, balance still owed) we clear
+ * active_pi_id so the next payment mints a fresh balance intent (no succeeded-PI reuse).
+ */
+async function settleAfterPayment(env: Env, booking: BookingRow, piStatus: 'succeeded' | 'processing' | 'failed'): Promise<void> {
+  const paid = await sumSucceededPayments(env.DB, booking.token);
+  const fullTotal = booking.full_amount ?? booking.amount_due;
+  const status = nextBookingStatus({ piStatus, paid, fullTotal, requireSignature: booking.require_signature === 1 });
+  await setBookingStatus(env.DB, booking.token, status, status === 'partial' ? { activePiId: null } : {});
+}
+
 async function reconcilePayments(env: Env): Promise<void> {
   let rows: { token: string; active_pi_id: string; status: string }[];
   try { rows = await listReconcilable(env.DB); } catch { return; }
@@ -334,7 +360,8 @@ async function reconcilePayments(env: Env): Promise<void> {
       const kind: PayKind = pi.metadata?.kind === 'balance' ? 'balance' : pi.metadata?.kind === 'full' ? 'full' : 'deposit';
       if (pi.status === 'succeeded' && r.status !== 'paid') {
         await upsertPaymentEvent(env.DB, { booking_token: r.token, stripe_pi_id: pi.id, kind, amount: pi.amount / 100, status: 'succeeded' });
-        await setBookingStatus(env.DB, r.token, 'paid');
+        const booking = await getBooking(env.DB, r.token);
+        if (booking) await settleAfterPayment(env, booking, 'succeeded');
       } else if (pi.status === 'processing' && r.status !== 'processing') {
         await upsertPaymentEvent(env.DB, { booking_token: r.token, stripe_pi_id: pi.id, kind, amount: pi.amount / 100, status: 'processing' });
         await setBookingStatus(env.DB, r.token, 'processing');
@@ -363,13 +390,14 @@ export async function handleStripeWebhook(req: Request, env: Env): Promise<Respo
     if (!booking) return; // already purged — replay of an acked event; nothing to redo
     const kind: PayKind = pi.metadata?.kind === 'balance' ? 'balance' : pi.metadata?.kind === 'full' ? 'full' : 'deposit';
     await upsertPaymentEvent(env.DB, { booking_token: token, stripe_pi_id: pi.id, kind, amount: pi.amount / 100, status: piStatus });
-    if (piStatus === 'succeeded') {
-      await setBookingStatus(env.DB, token, 'paid');
-    } else if (piStatus === 'processing') {
-      await setBookingStatus(env.DB, token, 'processing');
+    if (piStatus === 'succeeded' || piStatus === 'processing') {
+      // One link carries the whole booking: a deposit that doesn't cover the total → 'partial'
+      // (balance still owed on the same link), a payment that covers it → 'paid'.
+      await settleAfterPayment(env, booking, piStatus);
     } else if (booking.status === 'processing') {
-      // A late ACH failure: reopen for another attempt and tell the desktop.
-      await setBookingStatus(env.DB, token, booking.require_signature === 1 ? 'signed' : 'open');
+      // A late ACH failure resolving an in-flight payment: settle back (stays 'partial' if a
+      // deposit already cleared, else 'signed'/'open').
+      await settleAfterPayment(env, booking, 'failed');
     }
   };
 
