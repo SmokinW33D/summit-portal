@@ -13,8 +13,9 @@ import {
 } from './logic';
 import {
   ackAndPurge, ackRefundNotices, deleteBooking, expireOverdue, findActiveForEntity, findSettledForEntity,
-  getBooking, getConfig, getSignature, insertBooking, insertRefundNotice, insertSignature, listDirtyRefundNotices,
-  listDirtyUpdates, listReconcilable, purgeAckedTerminal, setBookingStatus, setConfig, sumSucceededPayments, upsertPaymentEvent,
+  getBooking, getBookingDocument, getConfig, getSignature, insertBooking, insertRefundNotice, insertSignature,
+  listBookingDocKinds, listDirtyRefundNotices, listDirtyUpdates, listReconcilable, purgeAckedTerminal,
+  setBookingStatus, setConfig, sumSucceededPayments, upsertBookingDocument, upsertPaymentEvent,
   type BookingRow,
 } from './db';
 import { stripeClient, verifyWebhook } from './stripeClient';
@@ -186,6 +187,7 @@ export async function handlePublish(req: Request, env: Env): Promise<Response> {
     expires_at: addDaysIso(p.expires_days),
   };
   await insertBooking(env.DB, row);
+  for (const doc of p.documents) await upsertBookingDocument(env.DB, row.token, doc.kind, doc.html);
   // The desktop knows its own portal base URL and builds the link itself, so the
   // Worker needs no PORTAL_BASE_URL configured.
   return json({ token: row.token, expires_at: row.expires_at }, 201);
@@ -213,8 +215,12 @@ export async function handleGetBooking(env: Env, token: string): Promise<Respons
   const remaining = partial
     ? remainingDue(booking.full_amount ?? booking.amount_due, await sumSucceededPayments(env.DB, token))
     : booking.amount_due;
+  // The contract is always available (it's the agreement on the page); estimate/invoice live in
+  // their own rows and are fetched on demand via /doc/:kind.
+  const documents = ['contract', ...(await listBookingDocKinds(env.DB, token))];
   return json({
     status: booking.status,
+    documents,
     pay_target: partial ? 'balance' : booking.pay_target,
     require_signature: booking.require_signature === 1,
     signed: partial ? true : !!sig,
@@ -227,6 +233,19 @@ export async function handleGetBooking(env: Env, token: string): Promise<Respons
     currency: booking.currency,
     expires_at: booking.expires_at,
     stripe_publishable_key: publishableKeyOf(booking),
+  });
+}
+
+// ─── Client: fetch one document as HTML (view / print → save as PDF) ─────────────
+export async function handleGetDoc(env: Env, token: string, kind: string): Promise<Response> {
+  const { booking } = await loadLive(env, token);
+  if (!booking) return new Response('Not found', { status: 404 });
+  let html: string | null = null;
+  if (kind === 'contract') html = booking.contract_html;
+  else if (kind === 'estimate' || kind === 'invoice') html = await getBookingDocument(env.DB, token, kind);
+  if (!html) return new Response('Not found', { status: 404 });
+  return new Response(html, {
+    headers: { 'content-type': 'text/html; charset=utf-8', 'x-robots-tag': 'noindex, nofollow', 'cache-control': 'no-store' },
   });
 }
 

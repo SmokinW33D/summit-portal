@@ -103,6 +103,7 @@ export interface PublishPayload {
   full_amount: number | null; // whole contract total on a deposit link (enables "pay in full")
   currency: string;
   expires_days: number;
+  documents: { kind: 'estimate' | 'invoice'; html: string }[]; // extra client docs (own rows)
 }
 
 type Valid<T> = { ok: true; value: T } | { ok: false; error: string };
@@ -134,6 +135,17 @@ export function validatePublishPayload(x: unknown): Valid<PublishPayload> {
   if (o.currency !== 'usd') return { ok: false, error: 'currency' };
   const days = o.expires_days ?? 14;
   if (typeof days !== 'number' || !Number.isInteger(days) || days < 1 || days > 90) return { ok: false, error: 'expires_days' };
+  // Optional extra client documents (estimate/invoice), each stored in its own row (< 2 MB).
+  const documents: { kind: 'estimate' | 'invoice'; html: string }[] = [];
+  if (o.documents != null) {
+    if (!Array.isArray(o.documents)) return { ok: false, error: 'documents' };
+    for (const d of o.documents) {
+      const dd = d as Record<string, unknown>;
+      if (!dd || (dd.kind !== 'estimate' && dd.kind !== 'invoice')) return { ok: false, error: 'document kind' };
+      if (typeof dd.html !== 'string' || !dd.html || dd.html.length > 1_800_000) return { ok: false, error: 'document too large' };
+      documents.push({ kind: dd.kind, html: dd.html });
+    }
+  }
   return {
     ok: true,
     value: {
@@ -148,6 +160,7 @@ export function validatePublishPayload(x: unknown): Valid<PublishPayload> {
       full_amount,
       currency: 'usd',
       expires_days: days,
+      documents,
     },
   };
 }

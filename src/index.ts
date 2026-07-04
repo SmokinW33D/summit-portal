@@ -15,7 +15,7 @@
  * Full runbook: docs/PORTAL.md at the repo root.
  */
 import {
-  handleAck, handleCancel, handleGetBooking, handlePayIntent, handlePublish, handleSign,
+  handleAck, handleCancel, handleGetBooking, handleGetDoc, handlePayIntent, handlePublish, handleSign,
   handleStripeWebhook, handleUpdates, json, runSweep,
 } from './api';
 import { TOKEN_RE } from './logic';
@@ -88,6 +88,12 @@ async function route(req: Request, env: Env): Promise<Response> {
     }
 
     if (path === '/api/health') return json({ ok: true });
+
+    const md = path.match(/^\/api\/bookings\/([A-Za-z0-9_-]+)\/doc\/([a-z]+)$/);
+    if (md && req.method === 'GET') {
+      if (!TOKEN_RE.test(md[1])) return json({ error: 'not found' }, 404);
+      return handleGetDoc(env, md[1], md[2]);
+    }
 
     const m = path.match(/^\/api\/bookings\/([A-Za-z0-9_-]+)(?:\/([a-z-]+))?$/);
     if (m) {

@@ -60,6 +60,15 @@ export const SCHEMA_STATEMENTS: string[] = [
   // Refund notices survive booking purge, so the desktop still learns of a late refund.
   `CREATE TABLE IF NOT EXISTS refund_notice (id TEXT PRIMARY KEY, stripe_pi_id TEXT, related_type TEXT NOT NULL, related_id TEXT NOT NULL, pay_target TEXT NOT NULL, amount REAL NOT NULL, refunded_at TEXT NOT NULL, desktop_dirty INTEGER NOT NULL DEFAULT 1)`,
   `CREATE UNIQUE INDEX IF NOT EXISTS idx_refund_pi ON refund_notice(stripe_pi_id)`,
+  // The client's documents (estimate/invoice as HTML) — one row per kind so no single value
+  // and no booking row approaches D1's 2 MB row cap. Fetched lazily by the page.
+  `CREATE TABLE IF NOT EXISTS booking_document (
+    booking_token TEXT NOT NULL REFERENCES booking(token),
+    kind TEXT NOT NULL,
+    html TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    PRIMARY KEY (booking_token, kind)
+  )`,
 ];
 
 // Additive columns for tables that already exist on a live D1. ALTER has no

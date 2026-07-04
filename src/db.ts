@@ -101,8 +101,28 @@ export async function deleteBooking(db: D1Database, token: string): Promise<void
   await db.batch([
     db.prepare('DELETE FROM payment_event WHERE booking_token = ?').bind(token),
     db.prepare('DELETE FROM signature WHERE booking_token = ?').bind(token),
+    db.prepare('DELETE FROM booking_document WHERE booking_token = ?').bind(token),
     db.prepare('DELETE FROM booking WHERE token = ?').bind(token),
   ]);
+}
+
+// ─── Client documents (estimate/invoice HTML) ───────────────────────────────────
+export async function upsertBookingDocument(db: D1Database, token: string, kind: string, html: string): Promise<void> {
+  await db
+    .prepare(`INSERT INTO booking_document (booking_token, kind, html, created_at) VALUES (?, ?, ?, ?)
+      ON CONFLICT(booking_token, kind) DO UPDATE SET html = excluded.html, created_at = excluded.created_at`)
+    .bind(token, kind, html, nowIso()).run();
+}
+
+export async function getBookingDocument(db: D1Database, token: string, kind: string): Promise<string | null> {
+  const r = await db.prepare('SELECT html FROM booking_document WHERE booking_token = ? AND kind = ?')
+    .bind(token, kind).first<{ html: string }>();
+  return r?.html ?? null;
+}
+
+export async function listBookingDocKinds(db: D1Database, token: string): Promise<string[]> {
+  const r = await db.prepare('SELECT kind FROM booking_document WHERE booking_token = ?').bind(token).all<{ kind: string }>();
+  return r.results.map((x) => x.kind);
 }
 
 export async function insertBooking(db: D1Database, row: BookingRow): Promise<void> {

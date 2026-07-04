@@ -54,6 +54,10 @@ export function renderBookingShell(token: string): string {
   .paysum .row { display:flex; justify-content:space-between; font-size:13.5px; padding:3px 0; }
   .paysum .row.big { font-size:16px; font-weight:800; border-top:1px solid var(--line); margin-top:6px; padding-top:9px; }
   .paysum .hint { font-size:12px; color:var(--muted); margin-top:8px; }
+  .docrow { display:flex; justify-content:space-between; align-items:center; padding:10px 2px; border-bottom:1px solid var(--line); }
+  .docrow:last-child { border-bottom:0; }
+  .docname { font-size:14px; font-weight:600; color:var(--ink); }
+  a.linkbtn { text-decoration:none; }
   label { display:block; font-size:13px; font-weight:700; margin:14px 0 5px; }
   input[type=text] { width:100%; padding:10px 12px; font:inherit; font-size:15px; border:1px solid var(--line); border-radius:8px; }
   input[type=text]:focus { outline:2px solid var(--accent); border-color:var(--accent); }
@@ -148,10 +152,11 @@ function route() {
     return notice('', 'This booking link has expired.', 'Please contact us for a fresh link — we\\u2019ll get you sorted right away. ' + contactLine());
   }
   if (booking.status === 'paid') {
-    var paidSmall = (booking.pay_target === 'deposit'
-      ? 'Your deposit is in and your date is locked.'
-      : 'Your balance is settled. See you at the event!') + ' A receipt has been emailed to you.';
-    return notice('ok', booking.pay_target === 'deposit' ? 'You\\u2019re booked!' : 'Payment received — thank you!', paidSmall);
+    var paidSmall = 'Your booking is fully paid. A receipt has been emailed to you.';
+    notice('ok', 'You\\u2019re all set — thank you!', paidSmall);
+    var dcPaid = documentsCard();
+    if (dcPaid) app.appendChild(dcPaid); // let them grab their documents after paying
+    return;
   }
   if (booking.status === 'processing') {
     return notice('ok', 'Bank transfer initiated', 'Your payment is on its way — bank transfers take a few business days to clear. We\\u2019ll confirm as soon as it lands.');
@@ -180,6 +185,8 @@ function render() {
   app.appendChild(head);
 
   app.appendChild(agreementCard());
+  var dc = documentsCard();
+  if (dc) app.appendChild(dc);
 
   if (needSign) app.appendChild(signCard());
   else app.appendChild(payCard());
@@ -246,6 +253,26 @@ function scaleDoc(doc, frame) {
   }
 }
 window.addEventListener('resize', function () { if (currentDoc && currentFrame) scaleDoc(currentDoc, currentFrame); });
+
+// "Your documents" — each opens the full document in a new tab (readable + printable → Save as
+// PDF). The contract is always present; estimate/invoice ride along when we've sent them.
+var DOC_LABELS = { contract: 'Event agreement', estimate: 'Estimate', invoice: 'Invoice' };
+function documentsCard() {
+  var docs = (booking && booking.documents) || [];
+  if (!docs.length) return null;
+  var card = el('div', 'card');
+  card.appendChild(el('h2', null, 'Your documents'));
+  docs.forEach(function (k) {
+    var row = el('div', 'docrow');
+    row.appendChild(el('span', 'docname', DOC_LABELS[k] || k));
+    var a = document.createElement('a');
+    a.href = API + '/doc/' + k; a.target = '_blank'; a.rel = 'noopener';
+    a.className = 'linkbtn'; a.textContent = 'View / download';
+    row.appendChild(a);
+    card.appendChild(row);
+  });
+  return card;
+}
 
 // ─── E-sign ─────────────────────────────────────────────────────────────────
 function signCard() {
