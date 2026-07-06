@@ -103,7 +103,10 @@ async function route(req: Request, env: Env): Promise<Response> {
       if (action === 'sign' && req.method === 'POST') return handleSign(req, env, token);
       if (action === 'pay-intent' && req.method === 'POST') {
         const choice = url.searchParams.get('choice') === 'full' ? 'full' : 'deposit';
-        return handlePayIntent(env, token, choice);
+        // Optional client-entered receipt email travels in a small JSON body.
+        const body = await req.json().catch(() => null) as { email?: unknown } | null;
+        const email = typeof body?.email === 'string' ? body.email : undefined;
+        return handlePayIntent(env, token, choice, email);
       }
       if (action === 'cancel' && req.method === 'POST') return handleCancel(req, env, token);
       if (action === 'documents' && req.method === 'POST') return handleUpdateDocuments(req, env, token);

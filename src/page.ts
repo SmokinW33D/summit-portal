@@ -414,6 +414,19 @@ function payCard() {
     card.appendChild(choices);
   }
 
+  // Email for the receipt — Stripe emails a receipt only when the PaymentIntent carries
+  // receipt_email. Prefilled from the booking contact when we have it, but always editable
+  // and OPTIONAL: an empty (or invalid) address never blocks paying, it just means no receipt.
+  card.appendChild(el('label', null, 'Email for your receipt'));
+  var emailIn = document.createElement('input');
+  emailIn.type = 'text'; emailIn.autocomplete = 'email'; emailIn.maxLength = 254;
+  emailIn.placeholder = 'you@example.com';
+  if (s && typeof s.client_email === 'string') emailIn.value = s.client_email;
+  card.appendChild(emailIn);
+  var emailHint = el('div', 'hint', 'We\\u2019ll email your Stripe receipt here. Leave blank to skip it.');
+  emailHint.style.marginBottom = '4px';
+  card.appendChild(emailHint);
+
   var mount = el('div'); mount.id = 'payment-element';
   var err = el('div', 'err', '');
   var btn = el('button', 'btn', 'Pay ' + money(depAmt)); btn.type = 'button'; btn.disabled = true;
@@ -423,7 +436,13 @@ function payCard() {
   if (!stripe) { err.textContent = 'The payment form could not load. Please refresh the page.'; return card; }
 
   var elements = null;
+  var sentEmail = null; // the receipt email last sent to the server (to detect edits)
   function amountFor(c) { return c === 'full' ? fullAmt : depAmt; }
+  // Optional: only send a plausible address (contains '@'); anything else is treated as blank.
+  function receiptEmail() {
+    var v = (emailIn.value || '').trim();
+    return v.indexOf('@') > 0 ? v : '';
+  }
 
   // (Re)load the PaymentIntent for the chosen amount and mount a fresh Payment Element, so
   // switching deposit↔full always reflects the right amount. The server is authoritative.
@@ -431,7 +450,12 @@ function payCard() {
     choice = c;
     err.textContent = ''; btn.disabled = true; btn.textContent = 'Pay ' + money(amountFor(c)); mount.innerHTML = ''; elements = null;
     if (canFull) { optDep.setActive(c === 'deposit'); optFull.setActive(c === 'full'); }
-    fetch(API + '/pay-intent' + (c === 'full' ? '?choice=full' : ''), { method: 'POST' })
+    sentEmail = receiptEmail();
+    fetch(API + '/pay-intent' + (c === 'full' ? '?choice=full' : ''), {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ email: sentEmail }),
+    })
       .then(function (r) { return r.json().catch(function () { return {}; }).then(function (j) { return { s: r.status, j: j }; }); })
       .then(function (res) {
         // Already paid (e.g. link reopened right after paying) — show the done state, never the form.
@@ -458,6 +482,11 @@ function payCard() {
     optDep.row.addEventListener('click', function () { if (choice !== 'deposit') loadIntent('deposit'); });
     optFull.row.addEventListener('click', function () { if (choice !== 'full') loadIntent('full'); });
   }
+  // If the client fills in / changes the receipt email after the form has mounted, re-issue the
+  // intent so the new address reaches Stripe. Reuses the same amount, so it never double-charges.
+  emailIn.addEventListener('blur', function () {
+    if (elements && receiptEmail() !== sentEmail) loadIntent(choice);
+  });
   loadIntent('deposit');
 
   btn.addEventListener('click', function () {

@@ -300,7 +300,7 @@ export async function handleSign(req: Request, env: Env, token: string): Promise
 
 // ─── Client: create/reuse the PaymentIntent ────────────────────────────────────
 
-export async function handlePayIntent(env: Env, token: string, choice: 'deposit' | 'full' = 'deposit'): Promise<Response> {
+export async function handlePayIntent(env: Env, token: string, choice: 'deposit' | 'full' = 'deposit', clientEmail?: string): Promise<Response> {
   const { booking } = await loadLive(env, token);
   if (!booking) return json({ error: 'not found' }, 404);
   if (booking.status === 'expired' || booking.status === 'cancelled') return json({ error: 'this link has expired — please contact us for a new one' }, 410);
@@ -325,8 +325,15 @@ export async function handlePayIntent(env: Env, token: string, choice: 'deposit'
   const snapshot = JSON.parse(booking.snapshot_json) as { title?: string; client_email?: string };
   const meta = { booking_token: token, kind, related_type: booking.related_type, related_id: booking.related_id };
   // Stripe emails the client a receipt on success (needs the account's "email customers"
-  // setting on — see PORTAL runbook). Only set when we actually have their email.
-  const receiptEmail = typeof snapshot.client_email === 'string' && snapshot.client_email.includes('@') ? snapshot.client_email : undefined;
+  // setting on — see PORTAL runbook). Prefer the email the client typed on the pay step
+  // (validated here) so a receipt still goes out even when the booking contact had none;
+  // fall back to the snapshot's contact email. Only set when we actually have a usable one.
+  const isEmail = (e: unknown): e is string =>
+    typeof e === 'string' && e.trim().length > 0 && e.trim().length <= 254 && e.includes('@');
+  const entered = typeof clientEmail === 'string' ? clientEmail.trim() : '';
+  const receiptEmail = isEmail(entered) ? entered
+    : isEmail(snapshot.client_email) ? snapshot.client_email
+    : undefined;
   const stripe = stripeClient(env);
 
   // Reuse the in-flight PaymentIntent so refresh/double-click never double-charges. If the
@@ -336,6 +343,11 @@ export async function handlePayIntent(env: Env, token: string, choice: 'deposit'
     if (pi.status === 'succeeded') return json({ error: 'already paid' }, 409);
     if (pi.status !== 'canceled') {
       if (pi.amount === amountCents && pi.metadata?.kind === kind) {
+        // Same amount + kind → reuse the intent (no double-charge). If the client has now
+        // supplied a receipt email the PI doesn't yet carry, apply just that (best-effort).
+        if (receiptEmail && pi.receipt_email !== receiptEmail) {
+          try { await stripe.paymentIntents.update(pi.id, { receipt_email: receiptEmail }); } catch { /* keep the working intent */ }
+        }
         return json({ client_secret: pi.client_secret, amount_cents: pi.amount, publishable_key: publishableKeyOf(booking) });
       }
       try {
