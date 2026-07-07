@@ -75,8 +75,9 @@ export const SCHEMA_STATEMENTS: string[] = [
 // IF NOT EXISTS, so each runs on its own and a "duplicate column" error (the
 // column is already there) is swallowed to keep ensureSchema idempotent.
 const ADDITIVE_COLUMNS: string[] = [
-  `ALTER TABLE signature ADD COLUMN signed_date TEXT`, // client-confirmed sign date
-  `ALTER TABLE booking ADD COLUMN full_amount REAL`,   // whole total for "pay in full" on a deposit link
+  `ALTER TABLE signature ADD COLUMN signed_date TEXT`,   // client-confirmed sign date
+  `ALTER TABLE signature ADD COLUMN signer_title TEXT`,  // client signer's title/role (optional)
+  `ALTER TABLE booking ADD COLUMN full_amount REAL`,     // whole total for "pay in full" on a deposit link
 ];
 
 // Applied at most once per Worker isolate.

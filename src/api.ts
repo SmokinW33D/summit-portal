@@ -285,6 +285,7 @@ export async function handleSign(req: Request, env: Env, token: string): Promise
   await insertSignature(env.DB, {
     booking_token: token,
     signer_name: parsed.value.signer_name,
+    signer_title: parsed.value.signer_title,
     sig_kind: parsed.value.sig_kind,
     sig_data: parsed.value.sig_data,
     consent_text: parsed.value.consent_text,

@@ -167,6 +167,7 @@ export function validatePublishPayload(x: unknown): Valid<PublishPayload> {
 
 export interface SignPayload {
   signer_name: string;
+  signer_title: string | null; // client signer's title/role (optional)
   sig_kind: 'typed' | 'drawn';
   sig_data: string;
   consent: true;
@@ -191,10 +192,17 @@ export function validateSignPayload(x: unknown): Valid<SignPayload> {
     if (typeof o.signed_date !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(o.signed_date)) return { ok: false, error: 'signed_date must be YYYY-MM-DD' };
     signed_date = o.signed_date;
   }
+  // Optional title/role — trimmed, capped; blank or absent → null.
+  let signer_title: string | null = null;
+  if (o.signer_title != null) {
+    if (typeof o.signer_title !== 'string' || o.signer_title.length > 120) return { ok: false, error: 'signer_title' };
+    signer_title = o.signer_title.trim() || null;
+  }
   return {
     ok: true,
     value: {
       signer_name: o.signer_name.trim(),
+      signer_title,
       sig_kind: o.sig_kind,
       sig_data: o.sig_data,
       consent: true,

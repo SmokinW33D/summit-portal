@@ -299,6 +299,12 @@ function signCard() {
   name.type = 'text'; name.autocomplete = 'name'; name.maxLength = 200; name.placeholder = 'Jane Q. Smith';
   card.appendChild(name);
 
+  // Optional title/role — fills the agreement's client "Title:" line (blank if left empty).
+  card.appendChild(el('label', null, 'Title / role (optional)'));
+  var titleIn = document.createElement('input');
+  titleIn.type = 'text'; titleIn.autocomplete = 'organization-title'; titleIn.maxLength = 120; titleIn.placeholder = 'e.g. Event Coordinator';
+  card.appendChild(titleIn);
+
   var mode = 'typed';
   var tabs = el('div', 'tabs');
   var tType = el('button', 'tab on', 'Type it'); tType.type = 'button';
@@ -361,7 +367,7 @@ function signCard() {
     fetch(API + '/sign', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ signer_name: name.value.trim(), sig_kind: mode, sig_data: sig, consent: true, consent_text: CONSENT_TEXT, signed_date: dateIn.value }),
+      body: JSON.stringify({ signer_name: name.value.trim(), signer_title: titleIn.value.trim() || null, sig_kind: mode, sig_data: sig, consent: true, consent_text: CONSENT_TEXT, signed_date: dateIn.value }),
     }).then(function (r) { return r.json().catch(function () { return {}; }).then(function (j) { return { s: r.status, j: j }; }); })
       .then(function (res) {
         if (res.s !== 200) { throw new Error(res.j && res.j.error || 'Could not record the signature.'); }
