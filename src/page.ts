@@ -282,6 +282,18 @@ function signCard() {
     card.appendChild(el('div', 'meta', 'We\\u2019ve already signed this agreement \\u2014 add your signature below to finalize it.'));
   }
 
+  // Make it unmistakable WHAT is being signed: the agreement above, for THIS event,
+  // between the client and us. (Clarity pass — the tie to the document wasn't obvious.)
+  var ss = booking.snapshot || {};
+  var sumBits = [ss.title, fmtDate(ss.event_date), (typeof ss.total === 'number' ? money(ss.total) : null)].filter(Boolean);
+  var callout = el('div', 'paysum');
+  callout.appendChild(el('div', null, 'You\\u2019re signing the Event Booking Agreement above' + (sumBits.length ? ' \\u2014 ' + sumBits.join('  \\u00b7  ') : '') + '.'));
+  var parties = (ss.brand && ss.brand.name) ? ss.brand.name : 'Summit Casino Events';
+  var calloutSub = el('div', 'hint', 'This agreement is between you and ' + parties + '. Your typed or drawn signature below is legally binding.');
+  calloutSub.style.marginTop = '4px';
+  callout.appendChild(calloutSub);
+  card.appendChild(callout);
+
   card.appendChild(el('label', null, 'Your full legal name'));
   var name = document.createElement('input');
   name.type = 'text'; name.autocomplete = 'name'; name.maxLength = 200; name.placeholder = 'Jane Q. Smith';
