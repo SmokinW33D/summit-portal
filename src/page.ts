@@ -27,7 +27,7 @@ export function renderBookingShell(token: string): string {
   .brand { display:flex; align-items:center; gap:14px; padding:8px 4px 20px; }
   .brand img { height:44px; width:auto; }
   .brand .name { font-size:15px; font-weight:700; letter-spacing:.04em; }
-  .card { background:#fff; border:1px solid var(--line); border-radius:10px; padding:22px; margin-bottom:16px; }
+  .card { background:#fff; border:1px solid var(--line); border-radius:10px; padding:22px; margin-bottom:16px; box-shadow:0 1px 3px rgba(16,24,40,.05); }
   h1 { font-size:22px; font-weight:800; margin-bottom:2px; }
   h2 { font-size:13px; font-weight:800; letter-spacing:.08em; text-transform:uppercase; color:var(--faint); margin-bottom:12px; }
   .meta { color:var(--muted); font-size:14px; }
@@ -70,23 +70,39 @@ export function renderBookingShell(token: string): string {
   .clear { position:absolute; top:8px; right:8px; font-size:12px; background:#fff; border:1px solid var(--line); border-radius:6px; padding:3px 8px; cursor:pointer; color:var(--muted); }
   .consent { display:flex; gap:10px; align-items:flex-start; margin:16px 0 4px; font-size:13.5px; color:var(--muted); }
   .consent input { margin-top:3px; width:16px; height:16px; accent-color:var(--accent); }
-  .btn { width:100%; margin-top:16px; padding:13px; font:inherit; font-size:15px; font-weight:800; color:#fff; background:var(--accent); border:0; border-radius:8px; cursor:pointer; }
+  .btn { width:100%; margin-top:16px; padding:13px; font:inherit; font-size:15px; font-weight:800; color:#fff; background:var(--accent); border:0; border-radius:8px; cursor:pointer; transition:filter .12s; }
+  .btn:not(:disabled):hover { filter:brightness(1.07); }
   .btn:disabled { opacity:.45; cursor:default; }
   .btn.ghost { background:#fff; color:var(--accent); border:1px solid var(--accent); }
   .err { color:#b3261e; font-size:13.5px; margin-top:10px; min-height:1em; }
   .notice { text-align:center; padding:36px 20px; }
   .notice .big { font-size:20px; font-weight:800; margin-bottom:6px; }
   .notice.ok .big { color:#2e7d4f; }
+  .okbadge { width:46px; height:46px; border-radius:50%; background:rgba(61,154,99,.12); color:#2e7d4f;
+             display:flex; align-items:center; justify-content:center; margin:0 auto 14px; font-size:22px; font-weight:800; }
+  .recap { text-align:left; background:#f8fafb; border:1px solid var(--line); border-radius:9px; padding:12px 14px; margin:18px auto 0; max-width:420px; }
+  .recap .row { display:flex; justify-content:space-between; gap:16px; font-size:13.5px; padding:3px 0; }
+  .recap .row .lbl { color:var(--muted); }
+  .recap .row .val { font-weight:700; white-space:nowrap; }
+  .recap .row.big { font-size:15px; font-weight:800; border-top:1px solid var(--line); margin-top:6px; padding-top:9px; }
   .fine { color:var(--faint); font-size:12.5px; margin-top:14px; }
   #payment-element { margin-top:14px; }
   .choices { display:flex; flex-direction:column; gap:8px; margin:2px 0 6px; }
-  .choice { display:block; width:100%; text-align:left; padding:11px 13px; font:inherit; border:1.5px solid var(--line); border-radius:10px; background:#fff; cursor:pointer; }
+  .choice { display:block; width:100%; text-align:left; padding:11px 13px; font:inherit; border:1.5px solid var(--line); border-radius:10px; background:#fff; cursor:pointer; transition:border-color .12s; }
+  .choice:hover { border-color:#c4cbd3; }
   .choice.on { border-color:var(--accent); box-shadow:inset 0 0 0 1px var(--accent); background:rgba(30,120,174,.05); }
   .choice-top { display:flex; justify-content:space-between; align-items:baseline; gap:10px; }
   .choice-title { font-size:14px; font-weight:800; color:var(--ink); }
   .choice-amt { font-size:15px; font-weight:800; color:var(--ink); }
   .choice-sub { font-size:12px; color:var(--muted); margin-top:2px; }
   .footer { text-align:center; color:var(--faint); font-size:12px; margin-top:8px; }
+  a.linkbtn:hover { text-decoration:underline; }
+  @media (max-width:480px) {
+    .wrap { padding:14px 10px 48px; }
+    .card { padding:18px 15px; }
+    h1 { font-size:20px; }
+    .steps { flex-wrap:wrap; }
+  }
 </style>
 <script src="https://js.stripe.com/v3/"></script>
 </head>
@@ -130,6 +146,38 @@ function contactLine() {
   return [b.email, b.phone].filter(Boolean).join(' · ');
 }
 
+// ─── Confirmation states ─────────────────────────────────────────────────────
+// A small receipt-style recap (event + amounts) so every end state says exactly
+// what happened — a deposit is never presented as "fully paid".
+function recapRows(rows) {
+  var r = el('div', 'recap');
+  rows.forEach(function (x) {
+    var row = el('div', 'row' + (x.big ? ' big' : ''));
+    row.appendChild(el('span', 'lbl', x.lbl));
+    row.appendChild(el('span', 'val', x.val));
+    r.appendChild(row);
+  });
+  return r;
+}
+function eventRecap() {
+  var s = (booking && booking.snapshot) || {};
+  var rows = [];
+  if (s.title) rows.push({ lbl: 'Event', val: s.title });
+  if (s.event_date) rows.push({ lbl: 'Date', val: fmtDate(s.event_date) });
+  return rows;
+}
+function doneState(big, small, rows) {
+  app.textContent = '';
+  var c = el('div', 'card notice ok');
+  c.appendChild(el('div', 'okbadge', '\\u2713'));
+  c.appendChild(el('div', 'big', big));
+  if (small) c.appendChild(el('div', 'meta', small));
+  if (rows && rows.length) c.appendChild(recapRows(rows));
+  app.appendChild(c);
+  var dc = documentsCard();
+  if (dc) app.appendChild(dc);
+}
+
 // ─── Load & route ───────────────────────────────────────────────────────────
 fetch(API).then(function (r) { return r.json().catch(function () { return {}; }).then(function (j) { return { s: r.status, j: j }; }); })
   .then(function (res) {
@@ -152,14 +200,20 @@ function route() {
     return notice('', 'This booking link has expired.', 'Please contact us for a fresh link — we\\u2019ll get you sorted right away. ' + contactLine());
   }
   if (booking.status === 'paid') {
-    var paidSmall = 'Your booking is fully paid. A receipt has been emailed to you.';
-    notice('ok', 'You\\u2019re all set — thank you!', paidSmall);
-    var dcPaid = documentsCard();
-    if (dcPaid) app.appendChild(dcPaid); // let them grab their documents after paying
-    return;
+    return doneState('You\\u2019re all set \\u2014 thank you!',
+      'This booking is fully paid. A receipt was emailed when the payment went through \\u2014 we\\u2019ll see you at the event.', eventRecap());
   }
   if (booking.status === 'processing') {
-    return notice('ok', 'Bank transfer initiated', 'Your payment is on its way — bank transfers take a few business days to clear. We\\u2019ll confirm as soon as it lands.');
+    app.textContent = '';
+    var pc = el('div', 'card notice');
+    pc.appendChild(el('div', 'big', 'Bank transfer on its way'));
+    pc.appendChild(el('div', 'meta', 'Bank transfers take a few business days to clear. Your date is held in the meantime \\u2014 we\\u2019ll email your receipt the moment it lands.'));
+    var pr = eventRecap();
+    if (pr.length) pc.appendChild(recapRows(pr));
+    app.appendChild(pc);
+    var pdc = documentsCard();
+    if (pdc) app.appendChild(pdc);
+    return;
   }
   render();
 }
@@ -418,6 +472,10 @@ function payCard() {
       ? 'Pay just the deposit to lock your date, or pay in full below — your choice.'
       : 'Your deposit locks the date; the remaining balance is due before the event.'));
   } else {
+    // Returning to settle up — acknowledge what's already in before asking for the rest.
+    if (typeof s.total === 'number' && s.total > depAmt) {
+      ps.appendChild(psRow('Already received \\u2014 thank you', money(s.total - depAmt), true));
+    }
     ps.appendChild(psRow('Remaining balance due today', money(depAmt), true));
   }
   card.appendChild(ps);
@@ -481,8 +539,11 @@ function payCard() {
         if (res.s !== 200) throw new Error(res.j && res.j.error || 'Could not start the payment.');
         return stripe.retrievePaymentIntent(res.j.client_secret).then(function (r2) {
           var st = r2 && r2.paymentIntent && r2.paymentIntent.status;
-          if (st === 'succeeded') { booking.status = 'paid'; return route(); }
-          if (st === 'processing') { booking.status = 'processing'; return route(); }
+          var cents2 = r2 && r2.paymentIntent && r2.paymentIntent.amount;
+          // Already settled (page reopened before the webhook caught up) — show the
+          // kind-aware confirmation, not a blanket "fully paid" (it may be a deposit).
+          if (st === 'succeeded') { return showJustPaid(paidKind(cents2), cents2 / 100); }
+          if (st === 'processing') { return showTransferStarted(cents2 / 100); }
           if (choice !== c) return; // a newer choice superseded this load
           elements = stripe.elements({
             clientSecret: res.j.client_secret,
@@ -507,6 +568,40 @@ function payCard() {
   });
   loadIntent('deposit');
 
+  // What was JUST paid decides the confirmation — a deposit is never shown as "fully paid".
+  function paidKind(amtCents) {
+    if (booking.pay_target === 'balance') return 'balance';
+    return typeof fullAmt === 'number' && Math.round(fullAmt * 100) === amtCents ? 'full' : 'deposit';
+  }
+  function showJustPaid(kind, amt) {
+    var s3 = booking.snapshot || {};
+    var remaining = kind === 'deposit' && typeof s3.balance === 'number' && s3.balance > 0 ? s3.balance : 0;
+    var rows = eventRecap();
+    rows.push({ lbl: 'Paid today', val: money(amt), big: true });
+    if (remaining > 0) rows.push({ lbl: 'Remaining balance', val: money(remaining) });
+    if (kind === 'deposit' && remaining > 0) {
+      doneState('Deposit received \\u2014 your date is locked in',
+        'Thank you! A receipt is on its way to your inbox. The remaining balance is due before your event \\u2014 you\\u2019ll pay it right here on this same link.', rows);
+    } else if (kind === 'balance') {
+      doneState('Balance received \\u2014 you\\u2019re all paid',
+        'Thank you! A receipt is on its way to your inbox. We\\u2019ll see you at the event.', rows);
+    } else {
+      doneState('Paid in full \\u2014 you\\u2019re all set',
+        'Thank you! A receipt is on its way to your inbox. Nothing left to pay \\u2014 we\\u2019ll see you at the event.', rows);
+    }
+  }
+  function showTransferStarted(amt) {
+    app.textContent = '';
+    var tc = el('div', 'card notice');
+    tc.appendChild(el('div', 'big', 'Bank transfer initiated'));
+    tc.appendChild(el('div', 'meta', 'Your ' + money(amt) + ' transfer is on its way \\u2014 bank transfers take a few business days to clear. Your date is held in the meantime; we\\u2019ll email your receipt the moment it lands.'));
+    var rows = eventRecap();
+    if (rows.length) tc.appendChild(recapRows(rows));
+    app.appendChild(tc);
+    var dc = documentsCard();
+    if (dc) app.appendChild(dc);
+  }
+
   btn.addEventListener('click', function () {
     if (!elements) return;
     err.textContent = ''; btn.disabled = true; btn.textContent = 'Processing\\u2026';
@@ -514,8 +609,9 @@ function payCard() {
       .then(function (res) {
         if (res.error) throw new Error(res.error.message || 'Payment failed. Please try again.');
         var st = res.paymentIntent && res.paymentIntent.status;
-        if (st === 'succeeded') { booking.status = 'paid'; route(); }
-        else if (st === 'processing') { booking.status = 'processing'; route(); }
+        var cents = res.paymentIntent && res.paymentIntent.amount;
+        if (st === 'succeeded') { showJustPaid(paidKind(cents), cents / 100); }
+        else if (st === 'processing') { showTransferStarted(cents / 100); }
         else { throw new Error('Payment did not complete. Please try again.'); }
       })
       .catch(function (e2) { err.textContent = e2.message; btn.disabled = false; btn.textContent = 'Pay ' + money(amountFor(choice)); });
