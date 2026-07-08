@@ -13,7 +13,7 @@ import {
 } from './logic';
 import {
   ackAndPurge, ackRefundNotices, deleteBooking, expireOverdue, findActiveForEntity, findSettledForEntity,
-  getBooking, getBookingDocument, getConfig, getSignature, insertBooking, insertRefundNotice, insertSignature,
+  getBooking, getBookingDocumentRow, getConfig, getSignature, insertBooking, insertRefundNotice, insertSignature,
   listBookingDocKinds, listDirtyRefundNotices, listDirtyUpdates, listReconcilable, purgeAckedTerminal,
   setBookingStatus, setConfig, sumSucceededPayments, upsertBookingDocument, upsertPaymentEvent,
   type BookingRow,
@@ -187,7 +187,7 @@ export async function handlePublish(req: Request, env: Env): Promise<Response> {
     expires_at: addDaysIso(p.expires_days),
   };
   await insertBooking(env.DB, row);
-  for (const doc of p.documents) await upsertBookingDocument(env.DB, row.token, doc.kind, doc.html);
+  for (const doc of p.documents) await upsertBookingDocument(env.DB, row.token, doc.kind, doc.html, doc.pdf_base64 ?? null);
   // The desktop knows its own portal base URL and builds the link itself, so the
   // Worker needs no PORTAL_BASE_URL configured.
   return json({ token: row.token, expires_at: row.expires_at }, 201);
@@ -204,7 +204,12 @@ export async function handleUpdateDocuments(req: Request, env: Env, token: strin
     const dd = d as Record<string, unknown>;
     if (dd.kind !== 'estimate' && dd.kind !== 'invoice' && dd.kind !== 'contract') return json({ error: 'document kind' }, 400);
     if (typeof dd.html !== 'string' || !dd.html || dd.html.length > 1_800_000) return json({ error: 'document too large' }, 400);
-    await upsertBookingDocument(env.DB, token, dd.kind, dd.html);
+    let pdf: string | null = null;
+    if (dd.pdf_base64 != null) {
+      if (typeof dd.pdf_base64 !== 'string' || dd.pdf_base64.length > 1_900_000) return json({ error: 'document pdf too large' }, 400);
+      pdf = dd.pdf_base64;
+    }
+    await upsertBookingDocument(env.DB, token, dd.kind, dd.html, pdf);
   }
   return json({ ok: true });
 }
@@ -232,8 +237,9 @@ export async function handleGetBooking(env: Env, token: string): Promise<Respons
     ? remainingDue(booking.full_amount ?? booking.amount_due, await sumSucceededPayments(env.DB, token))
     : booking.amount_due;
   // The contract is always available (it's the agreement on the page); estimate/invoice live in
-  // their own rows and are fetched on demand via /doc/:kind.
-  const documents = ['contract', ...(await listBookingDocKinds(env.DB, token))];
+  // their own rows and are fetched on demand via /doc/:kind. Dedupe so a pushed contract PDF
+  // doesn't list the agreement twice.
+  const documents = [...new Set(['contract', ...(await listBookingDocKinds(env.DB, token))])];
   return json({
     status: booking.status,
     documents,
@@ -252,15 +258,44 @@ export async function handleGetBooking(env: Env, token: string): Promise<Respons
   });
 }
 
-// ─── Client: fetch one document as HTML (view / print → save as PDF) ─────────────
+// ─── Client: download one document ───────────────────────────────────────────────
+const DOC_TITLE: Record<string, string> = { contract: 'Event Agreement', estimate: 'Estimate', invoice: 'Invoice' };
+
+/** A filename safe for a Content-Disposition header (no quotes, slashes, or control chars). */
+function safeFilename(s: string): string {
+  return (s.replace(/[^A-Za-z0-9 ._-]+/g, ' ').replace(/\s+/g, ' ').trim() || 'document').slice(0, 120);
+}
+
+/** Decode a base64 string to bytes (Workers have atob but not Buffer). */
+function base64ToBytes(b64: string): Uint8Array {
+  const bin = atob(b64);
+  const out = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
+  return out;
+}
+
 export async function handleGetDoc(env: Env, token: string, kind: string): Promise<Response> {
   const { booking } = await loadLive(env, token);
   if (!booking) return new Response('Not found', { status: 404 });
-  let html: string | null = null;
-  if (kind === 'contract') html = booking.contract_html;
-  else if (kind === 'estimate' || kind === 'invoice') html = await getBookingDocument(env.DB, token, kind);
-  if (!html) return new Response('Not found', { status: 404 });
-  return new Response(html, {
+  // Prefer a pushed document row — it carries the real branded PDF (and, for the contract, the
+  // fully-signed version once booked). Fall back to the on-page agreement HTML before one exists.
+  const doc = await getBookingDocumentRow(env.DB, token, kind);
+  const html = doc?.html ?? (kind === 'contract' ? booking.contract_html : null);
+  if (!doc?.pdf && !html) return new Response('Not found', { status: 404 });
+
+  if (doc?.pdf) {
+    const snap = JSON.parse(booking.snapshot_json) as { title?: string };
+    const name = safeFilename((snap.title ? snap.title + ' — ' : '') + (DOC_TITLE[kind] ?? 'Document'));
+    return new Response(base64ToBytes(doc.pdf), {
+      headers: {
+        'content-type': 'application/pdf',
+        'content-disposition': `attachment; filename="${name}.pdf"`,
+        'x-robots-tag': 'noindex, nofollow', 'cache-control': 'no-store',
+      },
+    });
+  }
+  // No PDF (older booking / render failed) — serve the HTML so it's still viewable/printable.
+  return new Response(html!, {
     headers: { 'content-type': 'text/html; charset=utf-8', 'x-robots-tag': 'noindex, nofollow', 'cache-control': 'no-store' },
   });
 }

@@ -108,11 +108,18 @@ export async function deleteBooking(db: D1Database, token: string): Promise<void
 }
 
 // ─── Client documents (estimate/invoice HTML) ───────────────────────────────────
-export async function upsertBookingDocument(db: D1Database, token: string, kind: string, html: string): Promise<void> {
+export async function upsertBookingDocument(db: D1Database, token: string, kind: string, html: string, pdf: string | null = null): Promise<void> {
   await db
-    .prepare(`INSERT INTO booking_document (booking_token, kind, html, created_at) VALUES (?, ?, ?, ?)
-      ON CONFLICT(booking_token, kind) DO UPDATE SET html = excluded.html, created_at = excluded.created_at`)
-    .bind(token, kind, html, nowIso()).run();
+    .prepare(`INSERT INTO booking_document (booking_token, kind, html, pdf, created_at) VALUES (?, ?, ?, ?, ?)
+      ON CONFLICT(booking_token, kind) DO UPDATE SET html = excluded.html, pdf = excluded.pdf, created_at = excluded.created_at`)
+    .bind(token, kind, html, pdf, nowIso()).run();
+}
+
+/** The stored document row — html plus the optional base64 PDF (the real branded download). */
+export async function getBookingDocumentRow(db: D1Database, token: string, kind: string): Promise<{ html: string; pdf: string | null } | null> {
+  const r = await db.prepare('SELECT html, pdf FROM booking_document WHERE booking_token = ? AND kind = ?')
+    .bind(token, kind).first<{ html: string; pdf: string | null }>();
+  return r ? { html: r.html, pdf: r.pdf ?? null } : null;
 }
 
 export async function getBookingDocument(db: D1Database, token: string, kind: string): Promise<string | null> {

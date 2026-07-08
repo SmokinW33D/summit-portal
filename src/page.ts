@@ -267,7 +267,7 @@ function documentsCard() {
     row.appendChild(el('span', 'docname', DOC_LABELS[k] || k));
     var a = document.createElement('a');
     a.href = API + '/doc/' + k; a.target = '_blank'; a.rel = 'noopener';
-    a.className = 'linkbtn'; a.textContent = 'View / download';
+    a.className = 'linkbtn'; a.textContent = 'Download PDF';
     row.appendChild(a);
     card.appendChild(row);
   });
