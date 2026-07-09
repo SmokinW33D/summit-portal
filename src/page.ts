@@ -253,13 +253,13 @@ function render() {
   head.appendChild(buildSteps(needSign));
   app.appendChild(head);
 
-  var qc = quoteCard();
-  if (qc) app.appendChild(qc);
+  var ic = invoiceCard();
+  if (ic) app.appendChild(ic);
   app.appendChild(agreementCard());
-  // The agreement (and the quote, when present) are already shown inline as scaled document
+  // The agreement (and the invoice, when present) are already shown inline as scaled document
   // cards with their own "Open PDF" — don't repeat them in the downloads list here.
   var inlineShown = ['contract'];
-  if (qc) inlineShown.push('estimate');
+  if (ic) inlineShown.push('invoice');
   var dc = documentsCard(inlineShown);
   if (dc) app.appendChild(dc);
 
@@ -279,14 +279,14 @@ function buildSteps(needSign) {
   return steps;
 }
 
-// The quote, shown exactly like the agreement — the real branded quote document scaled to fit
-// the card, with an "Open PDF" full-size copy and a "View full quote" expand. Only when we've
-// actually published a quote (estimate) for this booking.
-function quoteCard() {
-  if (!booking.estimate_html) return null;
+// The invoice, shown exactly like the agreement — the real branded invoice scaled to fit the
+// card, with an "Open PDF" full-size copy and a "View full invoice" expand. Pre-deposit this is
+// the "booking invoice" (deposit due / balance due); once booked it's the numbered invoice.
+function invoiceCard() {
+  if (!booking.invoice_html) return null;
   return scaledDocCard({
-    heading: 'Your quote', frameTitle: 'Quote', html: booking.estimate_html,
-    pdfKind: 'estimate', expandLabel: 'View full quote', subText: 'Your full itemized quote.',
+    heading: 'Your invoice', frameTitle: 'Invoice', html: booking.invoice_html,
+    pdfKind: 'invoice', expandLabel: 'View full invoice', subText: 'Your itemized invoice, with your deposit and balance.',
   });
 }
 
