@@ -13,7 +13,7 @@ import {
 } from './logic';
 import {
   ackAndPurge, ackRefundNotices, deleteBooking, expireOverdue, findActiveForEntity, findSettledForEntity,
-  getBooking, getBookingDocumentRow, getConfig, getSignature, insertBooking, insertRefundNotice, insertSignature,
+  getBooking, getBookingDocument, getBookingDocumentRow, getConfig, getSignature, insertBooking, insertRefundNotice, insertSignature,
   listBookingDocKinds, listDirtyRefundNotices, listDirtyUpdates, listReconcilable, purgeAckedTerminal,
   setBookingStatus, setConfig, sumSucceededPayments, upsertBookingDocument, upsertPaymentEvent,
   type BookingRow,
@@ -241,6 +241,9 @@ export async function handleGetBooking(env: Env, token: string): Promise<Respons
   // their own rows and are fetched on demand via /doc/:kind. Dedupe so a pushed contract PDF
   // doesn't list the agreement twice.
   const documents = [...new Set(['contract', ...(await listBookingDocKinds(env.DB, token))])];
+  // The quote (estimate) HTML travels inline like contract_html so the page can render the real
+  // branded quote document in a scaled iframe — the same way it shows the agreement.
+  const estimateHtml = await getBookingDocument(env.DB, token, 'estimate');
   return json({
     status: booking.status,
     documents,
@@ -251,6 +254,7 @@ export async function handleGetBooking(env: Env, token: string): Promise<Respons
     signed_at: sig?.signed_at ?? null,
     snapshot: JSON.parse(booking.snapshot_json) as Record<string, unknown>,
     contract_html: booking.contract_html,
+    estimate_html: estimateHtml,
     amount_due: remaining,
     full_amount: partial ? null : booking.full_amount,
     currency: booking.currency,

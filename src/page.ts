@@ -35,12 +35,6 @@ export function renderBookingShell(token: string): string {
   .step { padding:4px 10px; border-radius:99px; border:1px solid var(--line); color:var(--faint); background:#fff; }
   .step.on { border-color:var(--accent); color:var(--accent); }
   .step.done { border-color:#2e7d4f; color:#2e7d4f; }
-  table.svc { width:100%; border-collapse:collapse; font-size:14px; }
-  table.svc td { padding:9px 6px; border-bottom:1px solid var(--line); vertical-align:top; }
-  table.svc tr:last-child td { border-bottom:none; }
-  td.qty { width:36px; color:var(--accent); font-weight:800; }
-  td .svcname { font-weight:700; color:var(--ink); }
-  td .svcsub { font-size:12.5px; color:var(--muted); margin-top:2px; }
   .sub { color:var(--faint); font-size:12.5px; }
   .contact { font-size:13px; color:var(--muted); margin-top:16px; padding-top:12px; border-top:1px solid var(--line); }
   .contact a { color:var(--accent); text-decoration:none; font-weight:700; }
@@ -241,6 +235,7 @@ function route() {
 function render() {
   app.textContent = '';
   onSignResize = null; // dropped each render; signCard re-registers it when the pad is present
+  docFrames = [];      // scaled-doc frames are rebuilt below; drop stale references
   var s = booking.snapshot || {};
   var needSign = booking.require_signature && !booking.signed;
 
@@ -261,7 +256,11 @@ function render() {
   var qc = quoteCard();
   if (qc) app.appendChild(qc);
   app.appendChild(agreementCard());
-  var dc = documentsCard();
+  // The agreement (and the quote, when present) are already shown inline as scaled document
+  // cards with their own "Open PDF" — don't repeat them in the downloads list here.
+  var inlineShown = ['contract'];
+  if (qc) inlineShown.push('estimate');
+  var dc = documentsCard(inlineShown);
   if (dc) app.appendChild(dc);
 
   if (needSign) app.appendChild(signCard());
@@ -280,46 +279,15 @@ function buildSteps(needSign) {
   return steps;
 }
 
-// The itemized quote — what the client is actually paying for. The line items ride in the
-// snapshot (qty · service · detail); the full branded quote PDF, when we've sent it, opens
-// via "View full quote" (mirrors the agreement's "View full agreement").
+// The quote, shown exactly like the agreement — the real branded quote document scaled to fit
+// the card, with an "Open PDF" full-size copy and a "View full quote" expand. Only when we've
+// actually published a quote (estimate) for this booking.
 function quoteCard() {
-  var s = booking.snapshot || {};
-  var svcs = Array.isArray(s.services) ? s.services : [];
-  if (!svcs.length && typeof s.total !== 'number') return null;
-  var card = el('div', 'card');
-  card.appendChild(el('h2', null, 'Your quote'));
-  if (svcs.length) {
-    var tbl = document.createElement('table'); tbl.className = 'svc';
-    svcs.forEach(function (it) {
-      var tr = document.createElement('tr');
-      tr.appendChild(el('td', 'qty', (it && it.qty) ? String(it.qty) : ''));
-      var d = document.createElement('td');
-      d.appendChild(el('div', 'svcname', (it && it.name) ? it.name : '\\u2014'));
-      if (it && it.sub) d.appendChild(el('div', 'svcsub', it.sub));
-      tr.appendChild(d);
-      tbl.appendChild(tr);
-    });
-    card.appendChild(tbl);
-  }
-  if (typeof s.total === 'number') {
-    var sum = el('div', 'sumline');
-    sum.appendChild(el('span', 'lbl', 'Total'));
-    sum.appendChild(el('span', 'val', money(s.total)));
-    card.appendChild(sum);
-  }
-  // "View full quote" → the branded estimate PDF, only when the desktop has published one.
-  var docs = (booking && booking.documents) || [];
-  if (docs.indexOf('estimate') >= 0) {
-    var actions = el('div', 'docActions');
-    actions.appendChild(el('span', 'sub', 'The full itemized quote, ready to download.'));
-    var a = document.createElement('a');
-    a.href = API + '/doc/estimate'; a.target = '_blank'; a.rel = 'noopener';
-    a.className = 'linkbtn'; a.textContent = 'View full quote';
-    actions.appendChild(a);
-    card.appendChild(actions);
-  }
-  return card;
+  if (!booking.estimate_html) return null;
+  return scaledDocCard({
+    heading: 'Your quote', frameTitle: 'Quote', html: booking.estimate_html,
+    pdfKind: 'estimate', expandLabel: 'View full quote', subText: 'Your full itemized quote.',
+  });
 }
 
 // A clickable "questions?" affordance for the moment a client hesitates on the sign/pay step —
@@ -341,37 +309,38 @@ function contactBlock() {
   return wrap;
 }
 
-// The agreement, scaled to fit the card (the source is a full letter page, so we render it
-// at its natural width inside a same-origin iframe and scale the whole frame to fit — no more
-// zoomed-in blob). A "View full agreement" toggle expands it to its full height.
-function agreementCard() {
-  var agr = el('div', 'card');
-  agr.appendChild(el('h2', null, 'Your agreement'));
+// A branded document (agreement, quote) shown at its natural letter width inside a same-origin
+// iframe and scaled to fit the card — with an "Open PDF" full-size copy and an expand/collapse.
+// Both the agreement and the quote use this, so they read as one consistent premium document
+// instead of the quote being a plain list.
+function scaledDocCard(o) {
+  var card = el('div', 'card');
+  card.appendChild(el('h2', null, o.heading));
   var box = el('div', 'agreement');
   var doc = el('div', 'doc');
   var frame = document.createElement('iframe');
   frame.setAttribute('sandbox', 'allow-same-origin'); // trusted desktop-rendered HTML, scripts still blocked
-  frame.setAttribute('title', 'Event Booking Agreement');
-  frame.srcdoc = booking.contract_html;
+  frame.setAttribute('title', o.frameTitle || o.heading);
+  frame.srcdoc = o.html;
   doc.appendChild(frame);
   box.appendChild(doc);
 
   var actions = el('div', 'docActions');
-  actions.appendChild(el('span', 'sub', booking.signed ? ('Signed by ' + booking.signer_name + ' on ' + fmtDate(booking.signed_at)) : 'Please review the full agreement below.'));
-  // A readable, full-size escape hatch from the tiny scaled preview (especially on phones):
-  // the agreement always downloads as a PDF (/doc/contract falls back to the on-page HTML).
+  actions.appendChild(el('span', 'sub', o.subText));
+  // A readable, full-size escape hatch from the scaled preview (especially on phones): the
+  // document always downloads as a PDF (/doc/:kind falls back to the on-page HTML).
   var right = document.createElement('div');
   right.style.display = 'flex'; right.style.gap = '4px'; right.style.alignItems = 'center'; right.style.flex = 'none';
   var pdf = document.createElement('a');
-  pdf.href = API + '/doc/contract'; pdf.target = '_blank'; pdf.rel = 'noopener';
+  pdf.href = API + '/doc/' + o.pdfKind; pdf.target = '_blank'; pdf.rel = 'noopener';
   pdf.className = 'linkbtn'; pdf.textContent = 'Open PDF';
-  var expand = el('button', 'linkbtn', 'View full agreement'); expand.type = 'button';
+  var expand = el('button', 'linkbtn', o.expandLabel); expand.type = 'button';
   right.appendChild(pdf); right.appendChild(expand);
   actions.appendChild(right);
   box.appendChild(actions);
-  agr.appendChild(box);
+  card.appendChild(box);
 
-  currentDoc = doc; currentFrame = frame;
+  registerDocFrame(doc, frame);
   frame.addEventListener('load', function () {
     scaleDoc(doc, frame);
     // Web-font load can reflow the document height after 'load' — re-measure once shortly after.
@@ -379,13 +348,22 @@ function agreementCard() {
   });
   expand.addEventListener('click', function () {
     doc.classList.toggle('full');
-    expand.textContent = doc.classList.contains('full') ? 'Collapse' : 'View full agreement';
+    expand.textContent = doc.classList.contains('full') ? 'Collapse' : o.expandLabel;
     scaleDoc(doc, frame);
   });
-  return agr;
+  return card;
 }
 
-var currentDoc = null, currentFrame = null, onSignResize = null;
+function agreementCard() {
+  return scaledDocCard({
+    heading: 'Your agreement', frameTitle: 'Event Booking Agreement', html: booking.contract_html,
+    pdfKind: 'contract', expandLabel: 'View full agreement',
+    subText: booking.signed ? ('Signed by ' + booking.signer_name + ' on ' + fmtDate(booking.signed_at)) : 'Please review the full agreement below.',
+  });
+}
+
+var docFrames = [], onSignResize = null;
+function registerDocFrame(doc, frame) { docFrames.push({ doc: doc, frame: frame }); }
 function scaleDoc(doc, frame) {
   try {
     var cw = doc.clientWidth || 600;
@@ -405,15 +383,18 @@ function scaleDoc(doc, frame) {
   }
 }
 window.addEventListener('resize', function () {
-  if (currentDoc && currentFrame) scaleDoc(currentDoc, currentFrame);
+  for (var i = 0; i < docFrames.length; i++) scaleDoc(docFrames[i].doc, docFrames[i].frame);
   if (onSignResize) onSignResize(); // re-fit the signature pad so drawn strokes still map (rotation)
 });
 
 // "Your documents" — each opens the full document in a new tab (readable + printable → Save as
 // PDF). The contract is always present; estimate/invoice ride along when we've sent them.
 var DOC_LABELS = { contract: 'Event agreement', estimate: 'Quote', invoice: 'Invoice' };
-function documentsCard() {
-  var docs = (booking && booking.documents) || [];
+// The exclude arg lists kinds already shown inline (as scaled document cards) so we don't list
+// them twice on the main view. On the done/paid/processing screens it's called with no exclude,
+// so every document is offered for download there.
+function documentsCard(exclude) {
+  var docs = ((booking && booking.documents) || []).filter(function (k) { return !exclude || exclude.indexOf(k) < 0; });
   if (!docs.length) return null;
   var card = el('div', 'card');
   card.appendChild(el('h2', null, 'Your documents'));
