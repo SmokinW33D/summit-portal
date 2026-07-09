@@ -201,7 +201,12 @@ function loadBooking() {
         document.getElementById('brand').hidden = false;
         document.getElementById('footer').textContent = brand.name + (contactLine() ? ' — ' + contactLine() : '');
       }
-      if (!stripe) stripe = window.Stripe ? window.Stripe(booking.stripe_publishable_key) : null;
+      // Guard the Stripe init: a missing or mistyped publishable key (e.g. right after the
+      // test→live swap) must NOT throw and blank the whole page. On failure the customer can
+      // still view + sign; only paying is blocked, with a clear "couldn't load" message.
+      if (!stripe && window.Stripe && booking.stripe_publishable_key) {
+        try { stripe = window.Stripe(booking.stripe_publishable_key); } catch (e) { stripe = null; }
+      }
       route();
     })
     .catch(function () { notice('', 'Something went wrong loading your booking.', 'Please refresh, or contact us if it keeps happening.'); });
@@ -669,8 +674,11 @@ function payCard() {
             clientSecret: res.j.client_secret,
             appearance: { theme: 'stripe', variables: { colorPrimary: '#1e78ae', fontFamily: "'Nunito Sans', Helvetica, Arial, sans-serif" } },
           });
-          // ACH (bank transfer) first — big-ticket bookings cost ~0.8% (capped) vs ~3% on card.
-          elements.create('payment', { paymentMethodOrder: ['us_bank_account', 'card'] }).mount('#payment-element');
+          // Order methods by what this payment is for: a DEPOSIT should lock the date instantly,
+          // so lead with card (ACH takes days to clear → only a soft-hold meanwhile); a BALANCE
+          // has no urgency and is usually large, so lead with ACH (~0.8% capped vs ~3% on card).
+          var methodOrder = booking.pay_target === 'balance' ? ['us_bank_account', 'card'] : ['card', 'us_bank_account'];
+          elements.create('payment', { paymentMethodOrder: methodOrder }).mount('#payment-element');
           btn.disabled = false;
         });
       })
