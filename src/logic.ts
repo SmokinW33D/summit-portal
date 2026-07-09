@@ -89,6 +89,22 @@ export function isExpiredAt(expiresAt: string, now = nowIso()): boolean {
   return expiresAt < now; // ISO strings compare lexicographically
 }
 
+/**
+ * How long a PAID booking stays readable to the client (durable docs — so a corporate
+ * client keeps access to their signed agreement + receipt + invoice). We keep it until a
+ * grace window after the event date; if the event date is missing/garbage, fall back to a
+ * fixed window from now. After this the cron purge removes it like any other terminal row.
+ */
+export const RETAIN_GRACE_DAYS = 14;
+export const RETAIN_FALLBACK_DAYS = 30;
+export function retainUntilIso(eventDate: string | null | undefined, now = new Date()): string {
+  if (eventDate && /^\d{4}-\d{2}-\d{2}$/.test(eventDate)) {
+    const base = new Date(eventDate + 'T23:59:59.000Z');
+    if (!isNaN(base.getTime())) return new Date(base.getTime() + RETAIN_GRACE_DAYS * 86_400_000).toISOString();
+  }
+  return new Date(now.getTime() + RETAIN_FALLBACK_DAYS * 86_400_000).toISOString();
+}
+
 // ─── Payload validation (never trust the browser or even the desktop blindly) ──
 
 export interface PublishPayload {

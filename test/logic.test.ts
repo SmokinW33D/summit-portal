@@ -5,8 +5,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  addDaysIso, dollarsToCents, isExpiredAt, mintToken, nextBookingStatus, remainingDue, safeEqual, sha256Hex, TOKEN_RE,
-  validatePublishPayload, validateSignPayload,
+  addDaysIso, dollarsToCents, isExpiredAt, mintToken, nextBookingStatus, remainingDue, retainUntilIso, safeEqual,
+  sha256Hex, RETAIN_GRACE_DAYS, RETAIN_FALLBACK_DAYS, TOKEN_RE, validatePublishPayload, validateSignPayload,
 } from '../src/logic';
 
 test('nextBookingStatus: one link carries deposit → balance', () => {
@@ -70,6 +70,19 @@ test('safeEqual: equal and unequal, any lengths', async () => {
 test('isExpiredAt: lexicographic ISO comparison', () => {
   assert.equal(isExpiredAt('2026-01-01T00:00:00.000Z', '2026-07-02T00:00:00.000Z'), true);
   assert.equal(isExpiredAt(addDaysIso(1), new Date().toISOString()), false);
+});
+
+test('retainUntilIso: keeps a paid booking readable past the event, falls back without a date', () => {
+  // event date + grace window
+  const r = retainUntilIso('2026-07-20');
+  const expected = new Date(Date.parse('2026-07-20T23:59:59.000Z') + RETAIN_GRACE_DAYS * 86_400_000).toISOString();
+  assert.equal(r, expected);
+  // no / garbage date → fixed fallback window from now
+  const now = new Date('2026-07-08T00:00:00.000Z');
+  assert.equal(retainUntilIso(null, now), new Date(now.getTime() + RETAIN_FALLBACK_DAYS * 86_400_000).toISOString());
+  assert.equal(retainUntilIso('not-a-date', now), new Date(now.getTime() + RETAIN_FALLBACK_DAYS * 86_400_000).toISOString());
+  // the retained window is always in the future relative to the event
+  assert.ok(retainUntilIso('2026-07-20') > '2026-07-20T23:59:59.000Z');
 });
 
 const goodPublish = {

@@ -19,7 +19,7 @@ export function renderBookingShell(token: string): string {
 <meta name="robots" content="noindex, nofollow">
 <title>Your booking — Summit Casino Events</title>
 <style>
-  :root { --ink:#1f1f1f; --muted:#5a5a5a; --faint:#909090; --line:#e2e2e2; --accent:#1e78ae; --bg:#f5f6f8; }
+  :root { --ink:#1f1f1f; --muted:#5a5a5a; --faint:#6b6b6b; --line:#e2e2e2; --accent:#1e78ae; --bg:#f5f6f8; color-scheme:light; }
   * { box-sizing:border-box; margin:0; }
   body { font-family:'Nunito Sans','Helvetica Neue',Helvetica,Arial,sans-serif; color:var(--ink);
          background:var(--bg); -webkit-font-smoothing:antialiased; line-height:1.5; }
@@ -34,24 +34,31 @@ export function renderBookingShell(token: string): string {
   .steps { display:flex; gap:8px; margin:14px 0 2px; font-size:12px; font-weight:700; letter-spacing:.05em; }
   .step { padding:4px 10px; border-radius:99px; border:1px solid var(--line); color:var(--faint); background:#fff; }
   .step.on { border-color:var(--accent); color:var(--accent); }
-  .step.done { border-color:#3d9a63; color:#3d9a63; }
+  .step.done { border-color:#2e7d4f; color:#2e7d4f; }
   table.svc { width:100%; border-collapse:collapse; font-size:14px; }
-  table.svc td { padding:8px 6px; border-bottom:1px solid var(--line); vertical-align:top; }
+  table.svc td { padding:9px 6px; border-bottom:1px solid var(--line); vertical-align:top; }
   table.svc tr:last-child td { border-bottom:none; }
-  td.qty { width:36px; color:var(--muted); }
+  td.qty { width:36px; color:var(--accent); font-weight:800; }
+  td .svcname { font-weight:700; color:var(--ink); }
+  td .svcsub { font-size:12.5px; color:var(--muted); margin-top:2px; }
   .sub { color:var(--faint); font-size:12.5px; }
-  .money { display:flex; justify-content:space-between; font-size:14px; padding:5px 6px; }
-  .money.due { font-size:17px; font-weight:800; border-top:2px solid var(--ink); margin-top:6px; padding-top:11px; }
+  .contact { font-size:13px; color:var(--muted); margin-top:16px; padding-top:12px; border-top:1px solid var(--line); }
+  .contact a { color:var(--accent); text-decoration:none; font-weight:700; }
+  .contact a:hover { text-decoration:underline; }
+  .goodtoknow { background:#f8fafb; border:1px solid var(--line); border-radius:9px; padding:12px 14px; margin-bottom:14px; font-size:13px; color:var(--muted); }
+  .goodtoknow b { color:var(--ink); }
+  .signedbanner { display:flex; align-items:center; gap:8px; background:rgba(46,125,79,.08); border:1px solid rgba(46,125,79,.28); color:#2e7d4f; border-radius:9px; padding:9px 12px; font-size:13.5px; font-weight:700; margin-bottom:12px; }
   .agreement { border:1px solid var(--line); border-radius:8px; overflow:hidden; background:#fff; }
   .agreement .doc { position:relative; overflow:hidden; width:100%; background:#fff; }
   .agreement iframe { border:0; display:block; background:#fff; transform-origin:top left; }
   .docActions { display:flex; justify-content:space-between; align-items:center; gap:12px; padding:9px 12px; border-top:1px solid var(--line); }
-  .linkbtn { background:none; border:0; color:var(--accent); font:inherit; font-size:12.5px; font-weight:700; cursor:pointer; padding:0; }
+  .linkbtn { background:none; border:0; color:var(--accent); font:inherit; font-size:12.5px; font-weight:700; cursor:pointer; padding:6px 4px; min-height:34px; }
   .sumline { display:flex; justify-content:space-between; font-size:14px; margin-top:12px; padding-top:12px; border-top:1px solid var(--line); }
   .sumline .lbl { color:var(--muted); }
   .sumline .val { font-weight:800; }
   .paysum { background:#f8fafb; border:1px solid var(--line); border-radius:9px; padding:12px 14px; margin-bottom:14px; }
-  .paysum .row { display:flex; justify-content:space-between; font-size:13.5px; padding:3px 0; }
+  .paysum .row { display:flex; justify-content:space-between; gap:16px; font-size:13.5px; padding:3px 0; }
+  .paysum .row span:last-child { white-space:nowrap; text-align:right; }
   .paysum .row.big { font-size:16px; font-weight:800; border-top:1px solid var(--line); margin-top:6px; padding-top:9px; }
   .paysum .hint { font-size:12px; color:var(--muted); margin-top:8px; }
   .docrow { display:flex; justify-content:space-between; align-items:center; padding:10px 2px; border-bottom:1px solid var(--line); }
@@ -59,15 +66,16 @@ export function renderBookingShell(token: string): string {
   .docname { font-size:14px; font-weight:600; color:var(--ink); }
   a.linkbtn { text-decoration:none; }
   label { display:block; font-size:13px; font-weight:700; margin:14px 0 5px; }
-  input[type=text] { width:100%; padding:10px 12px; font:inherit; font-size:15px; border:1px solid var(--line); border-radius:8px; }
-  input[type=text]:focus { outline:2px solid var(--accent); border-color:var(--accent); }
+  input[type=text], input[type=date], input[type=email] { width:100%; padding:10px 12px; font:inherit; font-size:16px; border:1px solid var(--line); border-radius:8px; background:#fff; color:var(--ink); appearance:none; -webkit-appearance:none; }
+  input[type=date] { min-height:44px; } /* match the text fields' height (native date control is shorter) */
+  input[type=text]:focus, input[type=date]:focus, input[type=email]:focus { outline:2px solid var(--accent); border-color:var(--accent); }
   .tabs { display:flex; gap:8px; margin-top:14px; }
   .tab { flex:1; padding:8px; font:inherit; font-size:13px; font-weight:700; border:1px solid var(--line); background:#fff; border-radius:8px; cursor:pointer; color:var(--muted); }
   .tab.on { border-color:var(--accent); color:var(--accent); }
   .sigbox { margin-top:10px; border:1px dashed var(--line); border-radius:8px; background:#fcfcfd; position:relative; }
   canvas.pad { width:100%; height:150px; display:block; touch-action:none; cursor:crosshair; }
-  .typedPreview { height:150px; display:flex; align-items:center; justify-content:center; font-family:'Snell Roundhand','Segoe Script',cursive; font-size:32px; color:var(--ink); padding:0 16px; overflow:hidden; }
-  .clear { position:absolute; top:8px; right:8px; font-size:12px; background:#fff; border:1px solid var(--line); border-radius:6px; padding:3px 8px; cursor:pointer; color:var(--muted); }
+  .typedPreview { height:150px; display:flex; align-items:center; justify-content:center; font-family:'Snell Roundhand','Segoe Script',cursive; font-size:32px; color:var(--ink); padding:0 16px; overflow:hidden; white-space:nowrap; }
+  .clear { position:absolute; top:8px; right:8px; font-size:12px; background:#fff; border:1px solid var(--line); border-radius:6px; padding:6px 10px; cursor:pointer; color:var(--muted); }
   .consent { display:flex; gap:10px; align-items:flex-start; margin:16px 0 4px; font-size:13.5px; color:var(--muted); }
   .consent input { margin-top:3px; width:16px; height:16px; accent-color:var(--accent); }
   .btn { width:100%; margin-top:16px; padding:13px; font:inherit; font-size:15px; font-weight:800; color:#fff; background:var(--accent); border:0; border-radius:8px; cursor:pointer; transition:filter .12s; }
@@ -129,6 +137,11 @@ function el(tag, cls, text) {
 function money(n) {
   return '$' + Number(n).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
+// A properly associated label (htmlFor ↔ id) so screen readers announce the field and a tap
+// on the label focuses the input.
+function labelFor(id, text) {
+  var l = document.createElement('label'); l.htmlFor = id; l.textContent = text; return l;
+}
 function fmtDate(iso) {
   if (!iso) return '';
   var d = new Date(iso + (iso.length === 10 ? 'T12:00:00' : ''));
@@ -179,21 +192,27 @@ function doneState(big, small, rows) {
 }
 
 // ─── Load & route ───────────────────────────────────────────────────────────
-fetch(API).then(function (r) { return r.json().catch(function () { return {}; }).then(function (j) { return { s: r.status, j: j }; }); })
-  .then(function (res) {
-    if (res.s === 404) return notice('', 'This booking link is no longer active.', 'If you\\u2019ve already completed your booking, you\\u2019re all set \\u2014 nothing more to do. Otherwise, please contact us.');
-    booking = res.j;
-    var brand = (booking.snapshot && booking.snapshot.brand) || {};
-    if (brand.name) {
-      document.getElementById('brandName').textContent = brand.name;
-      if (brand.logo) { var im = document.getElementById('brandLogo'); im.src = brand.logo; im.hidden = false; }
-      document.getElementById('brand').hidden = false;
-      document.getElementById('footer').textContent = brand.name + (contactLine() ? ' — ' + contactLine() : '');
-    }
-    stripe = window.Stripe ? window.Stripe(booking.stripe_publishable_key) : null;
-    route();
-  })
-  .catch(function () { notice('', 'Something went wrong loading your booking.', 'Please refresh, or contact us if it keeps happening.'); });
+// Fetch the authoritative booking state and route to the right screen. Called at
+// startup and again whenever the server tells us state moved under us (e.g. a payment
+// that already succeeded → we re-read rather than guess what happened).
+function loadBooking() {
+  return fetch(API).then(function (r) { return r.json().catch(function () { return {}; }).then(function (j) { return { s: r.status, j: j }; }); })
+    .then(function (res) {
+      if (res.s === 404) return notice('', 'This booking link is no longer active.', 'If you\\u2019ve already completed your booking, you\\u2019re all set \\u2014 nothing more to do. Otherwise, please contact us.');
+      booking = res.j;
+      var brand = (booking.snapshot && booking.snapshot.brand) || {};
+      if (brand.name) {
+        document.getElementById('brandName').textContent = brand.name;
+        if (brand.logo) { var im = document.getElementById('brandLogo'); im.src = brand.logo; im.hidden = false; }
+        document.getElementById('brand').hidden = false;
+        document.getElementById('footer').textContent = brand.name + (contactLine() ? ' — ' + contactLine() : '');
+      }
+      if (!stripe) stripe = window.Stripe ? window.Stripe(booking.stripe_publishable_key) : null;
+      route();
+    })
+    .catch(function () { notice('', 'Something went wrong loading your booking.', 'Please refresh, or contact us if it keeps happening.'); });
+}
+loadBooking();
 
 function route() {
   if (booking.status === 'expired' || booking.status === 'cancelled') {
@@ -221,6 +240,7 @@ function route() {
 // ─── Main view: header + agreement + sign/pay ───────────────────────────────
 function render() {
   app.textContent = '';
+  onSignResize = null; // dropped each render; signCard re-registers it when the pad is present
   var s = booking.snapshot || {};
   var needSign = booking.require_signature && !booking.signed;
 
@@ -238,6 +258,8 @@ function render() {
   head.appendChild(buildSteps(needSign));
   app.appendChild(head);
 
+  var qc = quoteCard();
+  if (qc) app.appendChild(qc);
   app.appendChild(agreementCard());
   var dc = documentsCard();
   if (dc) app.appendChild(dc);
@@ -258,6 +280,67 @@ function buildSteps(needSign) {
   return steps;
 }
 
+// The itemized quote — what the client is actually paying for. The line items ride in the
+// snapshot (qty · service · detail); the full branded quote PDF, when we've sent it, opens
+// via "View full quote" (mirrors the agreement's "View full agreement").
+function quoteCard() {
+  var s = booking.snapshot || {};
+  var svcs = Array.isArray(s.services) ? s.services : [];
+  if (!svcs.length && typeof s.total !== 'number') return null;
+  var card = el('div', 'card');
+  card.appendChild(el('h2', null, 'Your quote'));
+  if (svcs.length) {
+    var tbl = document.createElement('table'); tbl.className = 'svc';
+    svcs.forEach(function (it) {
+      var tr = document.createElement('tr');
+      tr.appendChild(el('td', 'qty', (it && it.qty) ? String(it.qty) : ''));
+      var d = document.createElement('td');
+      d.appendChild(el('div', 'svcname', (it && it.name) ? it.name : '\\u2014'));
+      if (it && it.sub) d.appendChild(el('div', 'svcsub', it.sub));
+      tr.appendChild(d);
+      tbl.appendChild(tr);
+    });
+    card.appendChild(tbl);
+  }
+  if (typeof s.total === 'number') {
+    var sum = el('div', 'sumline');
+    sum.appendChild(el('span', 'lbl', 'Total'));
+    sum.appendChild(el('span', 'val', money(s.total)));
+    card.appendChild(sum);
+  }
+  // "View full quote" → the branded estimate PDF, only when the desktop has published one.
+  var docs = (booking && booking.documents) || [];
+  if (docs.indexOf('estimate') >= 0) {
+    var actions = el('div', 'docActions');
+    actions.appendChild(el('span', 'sub', 'The full itemized quote, ready to download.'));
+    var a = document.createElement('a');
+    a.href = API + '/doc/estimate'; a.target = '_blank'; a.rel = 'noopener';
+    a.className = 'linkbtn'; a.textContent = 'View full quote';
+    actions.appendChild(a);
+    card.appendChild(actions);
+  }
+  return card;
+}
+
+// A clickable "questions?" affordance for the moment a client hesitates on the sign/pay step —
+// real mailto:/tel: links, not the faint footer text. Rendered only when we have contact info.
+function contactBlock() {
+  var b = (booking && booking.snapshot && booking.snapshot.brand) || {};
+  if (!b.email && !b.phone) return null;
+  var wrap = el('div', 'contact');
+  wrap.appendChild(document.createTextNode('Questions about your booking? '));
+  if (b.email) {
+    var em = document.createElement('a'); em.href = 'mailto:' + b.email; em.textContent = 'Email us';
+    wrap.appendChild(em);
+  }
+  if (b.email && b.phone) wrap.appendChild(document.createTextNode(' · '));
+  if (b.phone) {
+    var ph = document.createElement('a'); ph.href = 'tel:' + String(b.phone).replace(/[^0-9+]/g, ''); ph.textContent = 'Call ' + b.phone;
+    wrap.appendChild(ph);
+  }
+  return wrap;
+}
+
 // The agreement, scaled to fit the card (the source is a full letter page, so we render it
 // at its natural width inside a same-origin iframe and scale the whole frame to fit — no more
 // zoomed-in blob). A "View full agreement" toggle expands it to its full height.
@@ -275,13 +358,25 @@ function agreementCard() {
 
   var actions = el('div', 'docActions');
   actions.appendChild(el('span', 'sub', booking.signed ? ('Signed by ' + booking.signer_name + ' on ' + fmtDate(booking.signed_at)) : 'Please review the full agreement below.'));
+  // A readable, full-size escape hatch from the tiny scaled preview (especially on phones):
+  // the agreement always downloads as a PDF (/doc/contract falls back to the on-page HTML).
+  var right = document.createElement('div');
+  right.style.display = 'flex'; right.style.gap = '4px'; right.style.alignItems = 'center'; right.style.flex = 'none';
+  var pdf = document.createElement('a');
+  pdf.href = API + '/doc/contract'; pdf.target = '_blank'; pdf.rel = 'noopener';
+  pdf.className = 'linkbtn'; pdf.textContent = 'Open PDF';
   var expand = el('button', 'linkbtn', 'View full agreement'); expand.type = 'button';
-  actions.appendChild(expand);
+  right.appendChild(pdf); right.appendChild(expand);
+  actions.appendChild(right);
   box.appendChild(actions);
   agr.appendChild(box);
 
   currentDoc = doc; currentFrame = frame;
-  frame.addEventListener('load', function () { scaleDoc(doc, frame); });
+  frame.addEventListener('load', function () {
+    scaleDoc(doc, frame);
+    // Web-font load can reflow the document height after 'load' — re-measure once shortly after.
+    setTimeout(function () { scaleDoc(doc, frame); }, 150);
+  });
   expand.addEventListener('click', function () {
     doc.classList.toggle('full');
     expand.textContent = doc.classList.contains('full') ? 'Collapse' : 'View full agreement';
@@ -290,15 +385,18 @@ function agreementCard() {
   return agr;
 }
 
-var currentDoc = null, currentFrame = null;
+var currentDoc = null, currentFrame = null, onSignResize = null;
 function scaleDoc(doc, frame) {
   try {
     var cw = doc.clientWidth || 600;
     var d = frame.contentDocument;
     var natW = Math.max(816, d.documentElement.scrollWidth, d.body ? d.body.scrollWidth : 0);
+    // Set the natural width FIRST, then measure height — a replaced iframe lays out at ~300px
+    // until its width is set, so reading scrollHeight before this gives a wrong (too-tall) value.
+    frame.style.width = natW + 'px';
+    void frame.offsetHeight; // force reflow at the real width before measuring
     var natH = Math.max(d.documentElement.scrollHeight, d.body ? d.body.scrollHeight : 0) || 1056;
     var scale = cw / natW;
-    frame.style.width = natW + 'px';
     frame.style.height = natH + 'px';
     frame.style.transform = 'scale(' + scale + ')';
     doc.style.height = (doc.classList.contains('full') ? Math.ceil(natH * scale) : Math.min(560, Math.ceil(natH * scale))) + 'px';
@@ -306,11 +404,14 @@ function scaleDoc(doc, frame) {
     frame.style.width = '100%'; frame.style.transform = 'none'; frame.style.height = '560px'; doc.style.height = '560px';
   }
 }
-window.addEventListener('resize', function () { if (currentDoc && currentFrame) scaleDoc(currentDoc, currentFrame); });
+window.addEventListener('resize', function () {
+  if (currentDoc && currentFrame) scaleDoc(currentDoc, currentFrame);
+  if (onSignResize) onSignResize(); // re-fit the signature pad so drawn strokes still map (rotation)
+});
 
 // "Your documents" — each opens the full document in a new tab (readable + printable → Save as
 // PDF). The contract is always present; estimate/invoice ride along when we've sent them.
-var DOC_LABELS = { contract: 'Event agreement', estimate: 'Estimate', invoice: 'Invoice' };
+var DOC_LABELS = { contract: 'Event agreement', estimate: 'Quote', invoice: 'Invoice' };
 function documentsCard() {
   var docs = (booking && booking.documents) || [];
   if (!docs.length) return null;
@@ -348,21 +449,21 @@ function signCard() {
   callout.appendChild(calloutSub);
   card.appendChild(callout);
 
-  card.appendChild(el('label', null, 'Your full legal name'));
+  card.appendChild(labelFor('sig-name', 'Your full legal name'));
   var name = document.createElement('input');
-  name.type = 'text'; name.autocomplete = 'name'; name.maxLength = 200; name.placeholder = 'Jane Q. Smith';
+  name.type = 'text'; name.id = 'sig-name'; name.autocomplete = 'name'; name.maxLength = 200; name.placeholder = 'Jane Q. Smith';
   card.appendChild(name);
 
   // Optional title/role — fills the agreement's client "Title:" line (blank if left empty).
-  card.appendChild(el('label', null, 'Title / role (optional)'));
+  card.appendChild(labelFor('sig-title', 'Title / role (optional)'));
   var titleIn = document.createElement('input');
-  titleIn.type = 'text'; titleIn.autocomplete = 'organization-title'; titleIn.maxLength = 120; titleIn.placeholder = 'e.g. Event Coordinator';
+  titleIn.type = 'text'; titleIn.id = 'sig-title'; titleIn.autocomplete = 'organization-title'; titleIn.maxLength = 120; titleIn.placeholder = 'e.g. Event Coordinator';
   card.appendChild(titleIn);
 
   var mode = 'typed';
   var tabs = el('div', 'tabs');
-  var tType = el('button', 'tab on', 'Type it'); tType.type = 'button';
-  var tDraw = el('button', 'tab', 'Draw it'); tDraw.type = 'button';
+  var tType = el('button', 'tab on', 'Type it'); tType.type = 'button'; tType.setAttribute('aria-pressed', 'true');
+  var tDraw = el('button', 'tab', 'Draw it'); tDraw.type = 'button'; tDraw.setAttribute('aria-pressed', 'false');
   tabs.appendChild(tType); tabs.appendChild(tDraw);
   card.appendChild(tabs);
 
@@ -374,9 +475,9 @@ function signCard() {
   card.appendChild(sigbox);
 
   // Date — pre-filled with today, but the client confirms (and may adjust) it.
-  card.appendChild(el('label', null, 'Date'));
+  card.appendChild(labelFor('sig-date', 'Date'));
   var dateIn = document.createElement('input');
-  dateIn.type = 'date';
+  dateIn.type = 'date'; dateIn.id = 'sig-date';
   var now = new Date();
   dateIn.value = now.getFullYear() + '-' + String(now.getMonth() + 1).padStart(2, '0') + '-' + String(now.getDate()).padStart(2, '0');
   card.appendChild(dateIn);
@@ -390,14 +491,19 @@ function signCard() {
     ctx.lineWidth = 2.25; ctx.lineCap = 'round'; ctx.lineJoin = 'round'; ctx.strokeStyle = '#1f1f1f';
   }
   function pos(e) { var r = pad.getBoundingClientRect(); return [e.clientX - r.left, e.clientY - r.top]; }
-  pad.addEventListener('pointerdown', function (e) { if (!ctx) setupPad(); drawing = true; strokes++; var p = pos(e); ctx.beginPath(); ctx.moveTo(p[0], p[1]); pad.setPointerCapture(e.pointerId); });
-  pad.addEventListener('pointermove', function (e) { if (!drawing) return; var p = pos(e); ctx.lineTo(p[0], p[1]); ctx.stroke(); });
+  // strokes only increments on real movement (pointermove), so a single tap on the pad — which
+  // leaves no visible ink — can't satisfy the "please draw your signature" check.
+  pad.addEventListener('pointerdown', function (e) { if (!ctx) setupPad(); drawing = true; var p = pos(e); ctx.beginPath(); ctx.moveTo(p[0], p[1]); pad.setPointerCapture(e.pointerId); });
+  pad.addEventListener('pointermove', function (e) { if (!drawing) return; strokes++; var p = pos(e); ctx.lineTo(p[0], p[1]); ctx.stroke(); });
   pad.addEventListener('pointerup', function () { drawing = false; });
   clear.addEventListener('click', function () { if (ctx) { ctx.clearRect(0, 0, pad.width, pad.height); } strokes = 0; });
+  // On resize/rotation, re-fit the pad bitmap to the new CSS width so pointer coordinates keep
+  // mapping 1:1 (a stretched bitmap makes strokes land offset). Clears any in-progress drawing.
+  onSignResize = function () { if (pad.style.display !== 'none' && ctx) { setupPad(); strokes = 0; } };
 
   name.addEventListener('input', function () { typed.textContent = name.value; });
-  tType.addEventListener('click', function () { mode = 'typed'; tType.className = 'tab on'; tDraw.className = 'tab'; typed.style.display = 'flex'; pad.style.display = 'none'; clear.style.display = 'none'; });
-  tDraw.addEventListener('click', function () { mode = 'drawn'; tDraw.className = 'tab on'; tType.className = 'tab'; typed.style.display = 'none'; pad.style.display = 'block'; clear.style.display = 'block'; if (!ctx) setupPad(); });
+  tType.addEventListener('click', function () { mode = 'typed'; tType.className = 'tab on'; tDraw.className = 'tab'; tType.setAttribute('aria-pressed', 'true'); tDraw.setAttribute('aria-pressed', 'false'); typed.style.display = 'flex'; pad.style.display = 'none'; clear.style.display = 'none'; });
+  tDraw.addEventListener('click', function () { mode = 'drawn'; tDraw.className = 'tab on'; tType.className = 'tab'; tDraw.setAttribute('aria-pressed', 'true'); tType.setAttribute('aria-pressed', 'false'); typed.style.display = 'none'; pad.style.display = 'block'; clear.style.display = 'block'; if (!ctx) setupPad(); });
 
   var consent = el('div', 'consent');
   var cb = document.createElement('input'); cb.type = 'checkbox'; cb.id = 'consent';
@@ -409,6 +515,8 @@ function signCard() {
   var btn = el('button', 'btn', 'Sign agreement'); btn.type = 'button';
   card.appendChild(btn); card.appendChild(err);
   card.appendChild(el('div', 'fine', 'Your signature, the date and time, and your device information are recorded to create a verifiable signing record.'));
+  var sc = contactBlock();
+  if (sc) card.appendChild(sc);
 
   btn.addEventListener('click', function () {
     err.textContent = '';
@@ -461,6 +569,11 @@ function payCard() {
 
   card.appendChild(el('h2', null, booking.pay_target === 'deposit' ? 'Complete your booking' : 'Pay your balance'));
 
+  // Confirm the just-completed sign step (sign→pay is otherwise a silent scroll).
+  if (booking.require_signature && booking.signed) {
+    card.appendChild(el('div', 'signedbanner', '\\u2713  Agreement signed' + (booking.signer_name ? ' by ' + booking.signer_name : '') + ' \\u2014 the last step is payment.'));
+  }
+
   // Clear "what you're paying" summary so deposit vs. full vs. remaining is never ambiguous.
   var s = booking.snapshot || {};
   var ps = el('div', 'paysum');
@@ -479,6 +592,20 @@ function payCard() {
     ps.appendChild(psRow('Remaining balance due today', money(depAmt), true));
   }
   card.appendChild(ps);
+
+  // Plain-language "good to know" surfaced BEFORE paying — the cancellation/refund terms
+  // otherwise live only inside the agreement. We point to the agreement rather than restating
+  // policy here, so the two can never contradict each other.
+  var gtk = el('div', 'goodtoknow');
+  var gline = document.createElement('div');
+  var gstrong = document.createElement('b'); gstrong.textContent = 'Good to know: ';
+  gline.appendChild(gstrong);
+  gline.appendChild(document.createTextNode(booking.pay_target === 'deposit'
+    ? 'Your deposit reserves your event date; the remaining balance is due before the event. Please review the cancellation and refund terms in your agreement above before paying.'
+    : 'Please review the cancellation and refund terms in your agreement above before paying.'));
+  gtk.appendChild(gline);
+  card.appendChild(gtk);
+
   card.appendChild(el('div', 'meta', 'Pay by bank transfer (ACH) or card. Card is instant; a bank transfer clears in a few business days.'));
 
   var optDep = null, optFull = null;
@@ -493,9 +620,9 @@ function payCard() {
   // Email for the receipt — Stripe emails a receipt only when the PaymentIntent carries
   // receipt_email. Prefilled from the booking contact when we have it, but always editable
   // and OPTIONAL: an empty (or invalid) address never blocks paying, it just means no receipt.
-  card.appendChild(el('label', null, 'Email for your receipt'));
+  card.appendChild(labelFor('pay-email', 'Email for your receipt'));
   var emailIn = document.createElement('input');
-  emailIn.type = 'text'; emailIn.autocomplete = 'email'; emailIn.maxLength = 254;
+  emailIn.type = 'email'; emailIn.id = 'pay-email'; emailIn.autocomplete = 'email'; emailIn.inputMode = 'email'; emailIn.maxLength = 254;
   emailIn.placeholder = 'you@example.com';
   if (s && typeof s.client_email === 'string') emailIn.value = s.client_email;
   card.appendChild(emailIn);
@@ -508,6 +635,8 @@ function payCard() {
   var btn = el('button', 'btn', 'Pay ' + money(depAmt)); btn.type = 'button'; btn.disabled = true;
   card.appendChild(mount); card.appendChild(btn); card.appendChild(err);
   card.appendChild(el('div', 'fine', 'Payments are processed securely by Stripe. Your card or bank details go directly to Stripe and never touch our servers.'));
+  var payContact = contactBlock();
+  if (payContact) card.appendChild(payContact);
 
   if (!stripe) { err.textContent = 'The payment form could not load. Please refresh the page.'; return card; }
 
@@ -534,8 +663,18 @@ function payCard() {
     })
       .then(function (r) { return r.json().catch(function () { return {}; }).then(function (j) { return { s: r.status, j: j }; }); })
       .then(function (res) {
-        // Already paid (e.g. link reopened right after paying) — show the done state, never the form.
-        if (res.s === 409 && res.j && /already paid/i.test(res.j.error || '')) { booking.status = 'paid'; return route(); }
+        // The server moved state under us. Re-read the AUTHORITATIVE booking and route on it,
+        // never assuming "fully paid": a deposit that just cleared comes back 'partial' and we
+        // render the balance form; a booking that's truly settled shows the done state; a payment
+        // still clearing shows the transfer screen. (A blanket status='paid' here used to tell a
+        // deposit-payer their whole booking was settled and stall balance collection.)
+        if (res.s === 409 && res.j) {
+          if (/already paid/i.test(res.j.error || '')) {
+            if (res.j.status && res.j.status !== 'paid') return loadBooking();
+            booking.status = 'paid'; return route();
+          }
+          return loadBooking(); // e.g. amount change refused while an ACH payment is clearing
+        }
         if (res.s !== 200) throw new Error(res.j && res.j.error || 'Could not start the payment.');
         return stripe.retrievePaymentIntent(res.j.client_secret).then(function (r2) {
           var st = r2 && r2.paymentIntent && r2.paymentIntent.status;
@@ -561,10 +700,17 @@ function payCard() {
     optDep.row.addEventListener('click', function () { if (choice !== 'deposit') loadIntent('deposit'); });
     optFull.row.addEventListener('click', function () { if (choice !== 'full') loadIntent('full'); });
   }
-  // If the client fills in / changes the receipt email after the form has mounted, re-issue the
-  // intent so the new address reaches Stripe. Reuses the same amount, so it never double-charges.
+  // If the client fills in / changes the receipt email after the form has mounted, attach the
+  // new address to the SAME PaymentIntent — without tearing down the mounted card field (which
+  // would wipe any card details they'd already entered). Same amount + kind, so the server
+  // reuses the intent and just updates receipt_email; never double-charges.
   emailIn.addEventListener('blur', function () {
-    if (elements && receiptEmail() !== sentEmail) loadIntent(choice);
+    if (!elements || receiptEmail() === sentEmail) return;
+    sentEmail = receiptEmail();
+    fetch(API + '/pay-intent' + (choice === 'full' ? '?choice=full' : ''), {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ email: sentEmail }),
+    }).catch(function () { /* the receipt email is non-blocking */ });
   });
   loadIntent('deposit');
 
@@ -575,7 +721,13 @@ function payCard() {
   }
   function showJustPaid(kind, amt) {
     var s3 = booking.snapshot || {};
-    var remaining = kind === 'deposit' && typeof s3.balance === 'number' && s3.balance > 0 ? s3.balance : 0;
+    // Remaining after a deposit is the whole total minus what was just paid (authoritative),
+    // falling back to the snapshot balance — so a deposit is never mislabeled "paid in full".
+    var remaining = 0;
+    if (kind === 'deposit') {
+      if (typeof booking.full_amount === 'number') remaining = Math.max(0, Math.round((booking.full_amount - amt) * 100) / 100);
+      else if (typeof s3.balance === 'number' && s3.balance > 0) remaining = s3.balance;
+    }
     var rows = eventRecap();
     rows.push({ lbl: 'Paid today', val: money(amt), big: true });
     if (remaining > 0) rows.push({ lbl: 'Remaining balance', val: money(remaining) });

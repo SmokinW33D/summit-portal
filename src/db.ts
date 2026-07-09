@@ -2,7 +2,7 @@
  * D1 access for the booking portal. All SQL lives here; handlers stay thin.
  * Rows are short-lived: dirty → polled → acked → terminal rows purged.
  */
-import { TERMINAL_STATUSES, nowIso, type BookingStatus, type PayKind, type PayTarget } from './logic';
+import { nowIso, type BookingStatus, type PayKind, type PayTarget } from './logic';
 
 export interface BookingRow {
   token: string;
@@ -22,6 +22,7 @@ export interface BookingRow {
   created_at: string;
   updated_at: string;
   expires_at: string;
+  retain_until: string | null; // paid bookings stay client-readable until this time (durable docs)
 }
 
 export interface SignatureRow {
@@ -151,20 +152,15 @@ export async function setBookingStatus(
   db: D1Database,
   token: string,
   status: BookingStatus,
-  opts: { dirty?: boolean; activePiId?: string | null } = {},
+  opts: { dirty?: boolean; activePiId?: string | null; retainUntil?: string } = {},
 ): Promise<void> {
   const now = nowIso();
-  if (opts.activePiId !== undefined) {
-    await db
-      .prepare('UPDATE booking SET status = ?, desktop_dirty = MAX(desktop_dirty, ?), active_pi_id = ?, updated_at = ? WHERE token = ?')
-      .bind(status, opts.dirty === false ? 0 : 1, opts.activePiId, now, token)
-      .run();
-  } else {
-    await db
-      .prepare('UPDATE booking SET status = ?, desktop_dirty = MAX(desktop_dirty, ?), updated_at = ? WHERE token = ?')
-      .bind(status, opts.dirty === false ? 0 : 1, now, token)
-      .run();
-  }
+  const sets = ['status = ?', 'desktop_dirty = MAX(desktop_dirty, ?)', 'updated_at = ?'];
+  const vals: (string | number | null)[] = [status, opts.dirty === false ? 0 : 1, now];
+  if (opts.activePiId !== undefined) { sets.push('active_pi_id = ?'); vals.push(opts.activePiId); }
+  if (opts.retainUntil !== undefined) { sets.push('retain_until = ?'); vals.push(opts.retainUntil); }
+  vals.push(token);
+  await db.prepare(`UPDATE booking SET ${sets.join(', ')} WHERE token = ?`).bind(...vals).run();
 }
 
 export async function insertSignature(db: D1Database, sig: SignatureRow): Promise<void> {
@@ -242,8 +238,16 @@ export async function ackAndPurge(db: D1Database, acks: { token: string; updated
 }
 
 export async function purgeAckedTerminal(db: D1Database): Promise<number> {
-  const terminal = TERMINAL_STATUSES.map((s) => `'${s}'`).join(',');
-  const doomed = (await db.prepare(`SELECT token FROM booking WHERE desktop_dirty = 0 AND status IN (${terminal})`).all<{ token: string }>()).results;
+  const now = nowIso();
+  // expired/cancelled links go the moment the desktop acks them. A PAID booking is kept
+  // client-readable (durable docs) until its retain_until passes — then it purges like the
+  // rest. A paid row with no retain_until (legacy) purges immediately, as before.
+  const doomed = (await db
+    .prepare(`SELECT token FROM booking WHERE desktop_dirty = 0 AND (
+        status IN ('expired','cancelled')
+        OR (status = 'paid' AND (retain_until IS NULL OR retain_until < ?))
+      )`)
+    .bind(now).all<{ token: string }>()).results;
   for (const d of doomed) await deleteBooking(db, d.token);
   return doomed.length;
 }

@@ -8,8 +8,8 @@
 import type Stripe from 'stripe';
 import type { Env } from './index';
 import {
-  addDaysIso, dollarsToCents, isExpiredAt, mintToken, nextBookingStatus, nowIso, remainingDue, safeEqual, sha256Hex,
-  validatePublishPayload, validateSignPayload, type PayKind,
+  addDaysIso, dollarsToCents, isExpiredAt, mintToken, nextBookingStatus, nowIso, remainingDue, retainUntilIso,
+  safeEqual, sha256Hex, validatePublishPayload, validateSignPayload, type PayKind,
 } from './logic';
 import {
   ackAndPurge, ackRefundNotices, deleteBooking, expireOverdue, findActiveForEntity, findSettledForEntity,
@@ -185,6 +185,7 @@ export async function handlePublish(req: Request, env: Env): Promise<Response> {
     created_at: now,
     updated_at: now,
     expires_at: addDaysIso(p.expires_days),
+    retain_until: null, // set only when the booking becomes 'paid' (durable docs)
   };
   await insertBooking(env.DB, row);
   for (const doc of p.documents) await upsertBookingDocument(env.DB, row.token, doc.kind, doc.html, doc.pdf_base64 ?? null);
@@ -259,7 +260,7 @@ export async function handleGetBooking(env: Env, token: string): Promise<Respons
 }
 
 // ─── Client: download one document ───────────────────────────────────────────────
-const DOC_TITLE: Record<string, string> = { contract: 'Event Agreement', estimate: 'Estimate', invoice: 'Invoice' };
+const DOC_TITLE: Record<string, string> = { contract: 'Event Agreement', estimate: 'Quote', invoice: 'Invoice' };
 
 /** A filename safe for a Content-Disposition header (no quotes, slashes, or control chars). */
 function safeFilename(s: string): string {
@@ -376,7 +377,17 @@ export async function handlePayIntent(env: Env, token: string, choice: 'deposit'
   // client switched deposit↔full, update the SAME intent's amount + kind (same client_secret).
   if (booking.active_pi_id) {
     const pi = await stripe.paymentIntents.retrieve(booking.active_pi_id);
-    if (pi.status === 'succeeded') return json({ error: 'already paid' }, 409);
+    // Already succeeded (its webhook may not have landed yet): record it + settle the booking
+    // so the client is told the TRUTH — a deposit becomes 'partial' with a balance still owed,
+    // only a payment that covers the whole total becomes 'paid'. The page routes on `status`,
+    // never assuming "fully paid". This still refuses a second charge (409).
+    if (pi.status === 'succeeded') {
+      const piKind: PayKind = pi.metadata?.kind === 'balance' ? 'balance' : pi.metadata?.kind === 'full' ? 'full' : 'deposit';
+      await upsertPaymentEvent(env.DB, { booking_token: token, stripe_pi_id: pi.id, kind: piKind, amount: pi.amount / 100, status: 'succeeded' });
+      await settleAfterPayment(env, booking, 'succeeded');
+      const fresh = await getBooking(env.DB, token);
+      return json({ error: 'already paid', status: fresh?.status ?? 'paid' }, 409);
+    }
     if (pi.status !== 'canceled') {
       if (pi.amount === amountCents && pi.metadata?.kind === kind) {
         // Same amount + kind → reuse the intent (no double-charge). If the client has now
@@ -385,6 +396,12 @@ export async function handlePayIntent(env: Env, token: string, choice: 'deposit'
           try { await stripe.paymentIntents.update(pi.id, { receipt_email: receiptEmail }); } catch { /* keep the working intent */ }
         }
         return json({ client_secret: pi.client_secret, amount_cents: pi.amount, publishable_key: publishableKeyOf(booking) });
+      }
+      // Amount/kind differ (the client switched deposit↔full). NEVER mint a parallel intent
+      // while one is still clearing (ACH) — both could settle and double-charge. Refuse; the
+      // page shows the "transfer clearing" state instead.
+      if (pi.status === 'processing') {
+        return json({ error: 'a payment on this booking is already clearing — please wait for it to settle before changing the amount', status: 'processing' }, 409);
       }
       try {
         const upd = await stripe.paymentIntents.update(pi.id, { amount: amountCents, metadata: meta, ...(receiptEmail ? { receipt_email: receiptEmail } : {}) });
@@ -429,7 +446,16 @@ async function settleAfterPayment(env: Env, booking: BookingRow, piStatus: 'succ
   const paid = await sumSucceededPayments(env.DB, booking.token);
   const fullTotal = booking.full_amount ?? booking.amount_due;
   const status = nextBookingStatus({ piStatus, paid, fullTotal, requireSignature: booking.require_signature === 1 });
-  await setBookingStatus(env.DB, booking.token, status, status === 'partial' ? { activePiId: null } : {});
+  const opts: { activePiId?: string | null; retainUntil?: string } =
+    status === 'partial' ? { activePiId: null } : {};
+  // A fully-paid booking stays client-readable (durable docs) until a grace window past the
+  // event date — computed from the snapshot the client already sees.
+  if (status === 'paid') {
+    let eventDate: string | null = null;
+    try { eventDate = (JSON.parse(booking.snapshot_json) as { event_date?: string }).event_date ?? null; } catch { /* no date */ }
+    opts.retainUntil = retainUntilIso(eventDate);
+  }
+  await setBookingStatus(env.DB, booking.token, status, opts);
 }
 
 async function reconcilePayments(env: Env): Promise<void> {

@@ -26,7 +26,8 @@ export const SCHEMA_STATEMENTS: string[] = [
     desktop_dirty INTEGER NOT NULL DEFAULT 0,
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL,
-    expires_at TEXT NOT NULL
+    expires_at TEXT NOT NULL,
+    retain_until TEXT
   )`,
   `CREATE INDEX IF NOT EXISTS idx_booking_dirty ON booking(desktop_dirty)`,
   `CREATE INDEX IF NOT EXISTS idx_booking_expires ON booking(expires_at)`,
@@ -79,6 +80,7 @@ const ADDITIVE_COLUMNS: string[] = [
   `ALTER TABLE signature ADD COLUMN signer_title TEXT`,       // client signer's title/role (optional)
   `ALTER TABLE booking ADD COLUMN full_amount REAL`,          // whole total for "pay in full" on a deposit link
   `ALTER TABLE booking_document ADD COLUMN pdf TEXT`,         // base64 PDF (real branded download); HTML stays the fallback
+  `ALTER TABLE booking ADD COLUMN retain_until TEXT`,         // keep a PAID booking readable to the client until this time (durable docs)
 ];
 
 // Applied at most once per Worker isolate.
