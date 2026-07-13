@@ -53,18 +53,31 @@ async function loadLive(env: Env, token: string): Promise<{ booking: BookingRow 
 }
 
 // ─── Auto-register the Stripe webhook (no dashboard step) ──────────────────────
+/** 'live' when the Stripe secret key is a live key (sk_live_/rk_live_), else 'test'. */
+function stripeKeyMode(env: Env): 'live' | 'test' {
+  return /^(sk|rk)_live_/.test(env.STRIPE_SECRET_KEY ?? '') ? 'live' : 'test';
+}
+
 /**
  * The first time the desktop publishes, register this portal's own Stripe webhook
  * and store the signing secret in D1 — so no one wires a webhook up by hand. Runs
  * once (cached in D1); removes any prior endpoint at our URL so there's exactly one
  * and we always hold its secret. Best-effort — a failure never blocks publishing.
+ *
+ * Go-live is seamless: the cached webhook is tagged with the key's MODE (test/live).
+ * When you swap the Stripe secret key from test → live, the mode no longer matches, so
+ * the stale (test-account) webhook is dropped and a fresh LIVE webhook is registered on
+ * the next publish — no dashboard step, no manual cache clearing.
  */
 async function ensureWebhookRegistered(env: Env, origin: string): Promise<void> {
   const webhookUrl = `${origin}/api/stripe/webhook`;
-  if (await getConfig(env.DB, 'stripe_webhook_secret')) {
-    // Already registered. If the portal has since moved to a new address (e.g. a
-    // custom domain), repoint the SAME endpoint at the new URL so Stripe keeps
-    // reaching us. A URL update keeps the signing secret, so nothing else changes.
+  const mode = stripeKeyMode(env);
+  const haveSecret = await getConfig(env.DB, 'stripe_webhook_secret');
+  const storedMode = (await getConfig(env.DB, 'stripe_webhook_mode')) ?? 'test'; // pre-tag rows = test
+
+  // Registered AND still on the same key mode → just keep the URL current (e.g. after a
+  // custom-domain move). A URL update keeps the signing secret, so nothing else changes.
+  if (haveSecret && storedMode === mode) {
     const storedUrl = await getConfig(env.DB, 'stripe_webhook_url');
     const endpointId = await getConfig(env.DB, 'stripe_webhook_endpoint_id');
     if (endpointId && storedUrl && storedUrl !== webhookUrl) {
@@ -77,6 +90,9 @@ async function ensureWebhookRegistered(env: Env, origin: string): Promise<void> 
     }
     return;
   }
+  // Never registered, OR the secret key just switched test↔live (the cached webhook belongs to
+  // the other account and can't verify these events) → register a fresh one for THIS mode. The
+  // orphaned webhook in the other mode is harmless and left alone.
   try {
     const stripe = stripeClient(env);
     const existing = await stripe.webhookEndpoints.list({ limit: 100 });
@@ -92,6 +108,7 @@ async function ensureWebhookRegistered(env: Env, origin: string): Promise<void> 
       await setConfig(env.DB, 'stripe_webhook_endpoint_id', created.id);
       await setConfig(env.DB, 'stripe_webhook_secret', created.secret);
       await setConfig(env.DB, 'stripe_webhook_url', webhookUrl);
+      await setConfig(env.DB, 'stripe_webhook_mode', mode);
     }
   } catch (err) {
     console.error('auto webhook registration failed:', err instanceof Error ? err.message : err);
